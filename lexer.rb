@@ -122,7 +122,7 @@ module Mint
       end
 
       # This method should only be called at an `fexec'
-      def next_bol
+      def next_bol!
         if @line_jump
           p = @line_jump
           @line_jump = nil

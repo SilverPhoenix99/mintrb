@@ -315,7 +315,7 @@ EXPR := |*
   '<<' [\-~]? ident_char+ => {
     indent, id = current_token.match(/^<<([-~]?)(.+)$/).captures
     lit = gen_heredoc_token(indent, '', id)
-    fexec lit.content_start = next_bol;
+    fexec lit.content_start = next_bol!;
     fnext HEREDOC_CONTENT;
     fbreak;
   };
@@ -357,7 +357,7 @@ HEREDOC_IDENTIFIER := |*
     if current_token == delimiter
       id = current_token(ts: id_start, ote: -1)
       lit = gen_heredoc_token(indent, delimiter, id)
-      fexec lit.content_start = next_bol;
+      fexec lit.content_start = next_bol!;
       fnext HEREDOC_CONTENT;
       fbreak;
     end
