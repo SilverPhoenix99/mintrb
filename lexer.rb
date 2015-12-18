@@ -72,8 +72,13 @@ module Mint
         @tokens << [type, tok]
       end
 
-      def gen_number_token(num_base)
-        gen_token(:tNUMBER, [current_token, num_base])
+      def gen_number_token(num_type, num_base, num_flags)
+        num_type = case num_flags.last
+          when :rational  then :tRATIONAL
+          when :imaginary then :tIMAGINARY
+          else num_type
+        end
+        gen_token(num_type, [current_token, num_base])
       end
 
       def gen_keyword_token(tok = current_token)

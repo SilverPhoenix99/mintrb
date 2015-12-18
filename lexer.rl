@@ -96,12 +96,17 @@ sign = [+\-];
 real_frac = '.' udigits;
 real_exp  = [eE] sign? udigits;
 
+action rac_suf { (num_flags ||= []) << :rational }
+action cmx_suf { (num_flags ||= []) << :imaginary }
+action int_num { num_type = :tINTEGER }
+action flo_num { num_type = :tFLOAT }
+
 real_number =
   int_number
   (
       real_exp
-    | real_frac ( real_exp | 'r'? )?
-  )
+    | real_frac ( real_exp | ('r' %rac_suf)? )?
+  ) %flo_num
 ;
 
 rationable_number = (
@@ -110,9 +115,9 @@ rationable_number = (
   | dec_number
   | hex_number
   | int_number
-) 'r'? ;
+) %int_num ('r' %rac_suf)? ;
 
-number = sign? ( rationable_number | real_number ) 'i'? ;
+number = sign? ( rationable_number | real_number ) ('i' %cmx_suf)? ;
 
 
 # ------------------------------------------------------------------------------
@@ -286,11 +291,6 @@ EXPR := |*
 
   wspace+ | line_comment; # no op
 
-  'class' | ( '&'? '.' ) => {
-    gen_keyword_token
-    fcall CLASS;
-  };
-
   '%' string_term? alnum => {
     raise SyntaxError, 'unknown type of %string'
   };
@@ -326,16 +326,16 @@ EXPR := |*
     fgoto HEREDOC_IDENTIFIER;
   };
 
-  number       => { gen_number_token(num_base); fbreak; };
-  keyword      => { gen_keyword_token;          fbreak; };
-  op_asgn      => { gen_op_asgn_token;          fbreak; };
-  back_ref     => { gen_token(:tBACK_REF);      fbreak; };
-  nth_ref      => { gen_token(:tNTH_REF);       fbreak; };
-  gvar         => { gen_token(:tGVAR);          fbreak; };
-  cvar         => { gen_token(:tCVAR);          fbreak; };
-  ivar         => { gen_token(:tIVAR);          fbreak; };
-  identifier   => { gen_token(:tIDENTIFIER);    fbreak; };
-  constant     => { gen_token(:tCONSTANT);      fbreak; };
+  number     => { gen_number_token(num_type, num_base, num_flags || []); fbreak; };
+  keyword    => { gen_keyword_token;       fbreak; };
+  op_asgn    => { gen_op_asgn_token;       fbreak; };
+  back_ref   => { gen_token(:tBACK_REF);   fbreak; };
+  nth_ref    => { gen_token(:tNTH_REF);    fbreak; };
+  gvar       => { gen_token(:tGVAR);       fbreak; };
+  cvar       => { gen_token(:tCVAR);       fbreak; };
+  ivar       => { gen_token(:tIVAR);       fbreak; };
+  identifier => { gen_token(:tIDENTIFIER); fbreak; };
+  constant   => { gen_token(:tCONSTANT);   fbreak; };
 
   c_eof => { fbreak; };
 *|;
@@ -461,21 +461,6 @@ COMMON_CONTENT := |*
 
 
 #
-# Keyword 'class' or after '.' | '&.'
-# '<<' is singleton class and not heredoc
-#
-CLASS :=
-  '<<' @{
-      gen_keyword_token()
-      @top -= 1
-      fnext EXPR;
-      fbreak;
-    }
-  | any @{ fhold; fret; }
-;
-
-
-#
 # Block comments (=begin ... \n=end)
 #
 BLOCK_COMMENT := |*
@@ -493,6 +478,27 @@ BLOCK_COMMENT := |*
   any - c_eof; # append
 
 *|;
+
+
+
+# These scanners are only accessed by explicitly calling them.
+# The parsers are responsible to setting special states like the ones below.
+
+#
+# Keyword 'class' or after '.' | '&.'
+# '<<' is singleton class and not heredoc
+#
+CLASS := |*
+  '<<' => {
+    gen_keyword_token
+    @top -= 1
+    fnext EXPR;
+    fbreak;
+  };
+
+  any - '<' => { fhold; fret; };
+*|;
+
 
 # ------------------------------------------------------------------------------
 
