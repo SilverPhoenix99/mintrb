@@ -7,8 +7,16 @@ module Mint
       @brace_count = 0
     end
 
-    def content_buffer
+    def raw_content
       @content_buffer ||= String.new
+    end
+
+    def processed_content(tab_width)
+      raw_content.dup
+    end
+
+    def delimiter?
+      raise 'Not Implemented'
     end
 
     def interpolates?
@@ -57,6 +65,10 @@ module Mint
       super()
     end
 
+    def delimiter?(delimiter)
+      @delimiter[-1] == delimiter
+    end
+
     def interpolates?
       !(@delimiter =~ /^('|%[qwis])/)
     end
@@ -69,7 +81,7 @@ module Mint
       index = delimiter[0] == '%' ? 1 : 0
       STRING_BEG[delimiter[index]] || :tSTRING_BEG
     end
-    
+
     def unterminated_string_message
       'unterminated string meets end of file'
     end
@@ -96,6 +108,60 @@ module Mint
 
     def full_id
       "<<#{@indent}#{@id_delimiter}#{@id}#{@id_delimiter}"
+    end
+
+    def processed_content(tab_width)
+      return super unless @indent == '~'
+
+      indent = 1 << 31
+      line_indent = 0
+
+      raw_content.each_char do |c|
+        case
+          when c == Lexer::NL
+            line_indent = 0
+
+          when line_indent < 0
+            # don't do anything!
+
+          when c == ' '
+            line_indent += 1
+
+          when c == ?\t
+            line_indent += tab_width
+
+          else
+            indent = line_indent if line_indent < indent
+            line_indent = -1
+        end
+      end
+      indent = line_indent if 0 <= line_indent && line_indent < indent # last line
+
+      return raw_content if indent == 0
+
+      line_indent = indent
+      content = String.new
+      raw_content.each_char do |c|
+        case
+          when c == Lexer::NL
+            line_indent = indent
+            content += c
+
+          when line_indent > 0
+            line_indent -= c == ?\t ? tab_width : 1
+
+          else
+            content += c
+        end
+      end
+
+      content
+    end
+
+    def delimiter?(delimiter)
+      @regexp ||= (@indent == '') ? /#@id$/ : /[\t\n\v\f\r ]*#@id$/
+
+      (delimiter =~ @regexp) == 0
     end
 
     def interpolates?

@@ -5,11 +5,12 @@ module Mint
   class Lexer
     include Enumerable
 
-    NL = "\n"
+    NL = ?\n
 
     def initialize(data, filename = '(string)')
       self.data = data
       @filename = filename
+      @tab_width = 8
     end
 
     def data=(data)
@@ -61,6 +62,17 @@ module Mint
     instance_variables.select { |v| v =~ /^@_?Lex_/ }.each do |var|
       class_eval "def #{ var[1..-1] }; self.class.instance_variable_get('#{ var }') end"
     end
+
+    class << self
+      attr_accessor :tab_width
+    end
+    @tab_width = 8
+
+    def tab_width
+      @tab_width || self.class.tab_width
+    end
+
+    attr_writer :tab_width
 
     private
 
@@ -116,9 +128,11 @@ module Mint
       end
 
       def gen_string_content_token(ote = -token_length)
-        lit     = @literals.last
-        content = lit.content_buffer + current_token(ts: lit.content_start, ote: ote)
-        gen_token(:tSTRING_CONTENT, content)
+        lit = @literals.last
+        # add content to buffer
+        lit.raw_content << current_token(ts: lit.content_start, ote: ote)
+        gen_token(:tSTRING_CONTENT, lit.processed_content(tab_width))
+        lit.raw_content.clear
       end
 
       def gen_string_end_token

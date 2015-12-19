@@ -311,6 +311,12 @@ EXPR := |*
     end
     fbreak;
   };
+  
+  'class' => {
+    gen_keyword_token
+    fnext CLASS;
+    fbreak;
+  };
 
   '<<' [\-~]? ident_char+ => {
     indent, id = current_token.match(/^<<([-~]?)(.+)$/).captures
@@ -373,14 +379,8 @@ HEREDOC_CONTENT := |*
   c_eof => { raise SyntaxError, @literals.last.unterminated_string_message };
 
   (any - nl_eof)* nl_eof => {
-    lit    = @literals.last
-    regexp = if lit.indent == ''
-               /#{lit.delimiter}$/
-             else
-               /[\t\n\v\f\r ]*#{lit.delimiter}$/
-             end
-
-    if (current_token =~ regexp) == 0
+    lit = @literals.last
+    if lit.delimiter?(current_token)
       # found delimiter => end of heredoc
       gen_string_content_token
       gen_string_end_token
@@ -390,8 +390,7 @@ HEREDOC_CONTENT := |*
       fbreak;
     end
 
-    @p = @ts
-    fhold;
+    @p = @ts - 1
     fcall COMMON_CONTENT;
   };
 
@@ -408,7 +407,7 @@ STRING_CONTENT := |*
   alnum;
 
   any - alnum => {
-    if current_token == @literals.last.delimiter
+    if @literals.last.delimiter?(current_token)
       gen_string_content_token
       gen_string_end_token
       fnext EXPR;
@@ -445,7 +444,7 @@ COMMON_CONTENT := |*
     if @line_jump
       fexec @line_jump;
       # content in @te..@line_jump isn't included
-      @literals.last.content_buffer << current_token(ts: @literals.last.content_start)
+      @literals.last.raw_content << current_token(ts: @literals.last.content_start)
       @literals.last.content_start = @line_jump
       @line_jump = nil
     end
@@ -480,13 +479,9 @@ BLOCK_COMMENT := |*
 *|;
 
 
-
-# These scanners are only accessed by explicitly calling them.
-# The parsers are responsible to setting special states like the ones below.
-
 #
-# Keyword 'class' or after '.' | '&.'
-# '<<' is singleton class and not heredoc
+# Keyword 'class'
+# '<<' is left shift (singleton class) and not heredoc
 #
 CLASS := |*
   '<<' => {
