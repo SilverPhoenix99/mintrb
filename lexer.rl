@@ -3,7 +3,7 @@
 #%
 
 # Character classes are in lowercase. e.g.: eof
-# Machines/scanners are in uppercase. e.g.: EXPR
+# Machines/scanners are in uppercase. e.g.: EXPR_BEG
 # Actions are in CamelCase. e.g.: DoEof
 
 # The first state is BOL (beginning of line)
@@ -96,17 +96,17 @@ sign = [+\-];
 real_frac = '.' udigits;
 real_exp  = [eE] sign? udigits;
 
-action rac_suf { (num_flags ||= []) << :rational }
-action cmx_suf { (num_flags ||= []) << :imaginary }
-action int_num { num_type = :tINTEGER }
-action flo_num { num_type = :tFLOAT }
+action RacSuf { (num_flags ||= []) << :rational }
+action CmxSuf { (num_flags ||= []) << :imaginary }
+action IntNum { num_type = :tINTEGER }
+action FloNum { num_type = :tFLOAT }
 
 real_number =
   int_number
   (
       real_exp
-    | real_frac ( real_exp | ('r' %rac_suf)? )?
-  ) %flo_num
+    | real_frac ( real_exp | ('r' %RacSuf)? )?
+  ) %FloNum
 ;
 
 rationable_number = (
@@ -115,9 +115,9 @@ rationable_number = (
   | dec_number
   | hex_number
   | int_number
-) %int_num ('r' %rac_suf)? ;
+) %IntNum ('r' %RacSuf)? ;
 
-number = sign? ( rationable_number | real_number ) ('i' %cmx_suf)? ;
+number = sign? ( rationable_number | real_number ) ('i' %CmxSuf)? ;
 
 
 # ------------------------------------------------------------------------------
@@ -272,7 +272,7 @@ BOL := |*
 
   any - nl_eof => {
     fhold;
-    fgoto EXPR;
+    fgoto EXPR_BEG;
   };
 *|;
 
@@ -280,7 +280,7 @@ BOL := |*
 #
 # Expressions
 #
-EXPR := |*
+EXPR_BEG := |*
   nl => {
     if @line_jump
       fexec @line_jump;
@@ -369,7 +369,7 @@ CLASS := |*
   '<<' => {
     gen_keyword_token
     @top -= 1
-    fnext EXPR;
+    fnext EXPR_BEG;
     fbreak;
   };
 
@@ -417,7 +417,7 @@ HEREDOC_CONTENT := |*
       gen_string_end_token
       @line_jump = @te
       fexec lit.restore;
-      fnext EXPR;
+      fnext EXPR_BEG;
       fbreak;
     end
 
@@ -441,7 +441,7 @@ STRING_CONTENT := |*
     if @literals.last.delimiter?(current_token)
       gen_string_content_token
       gen_string_end_token
-      fnext EXPR;
+      fnext EXPR_BEG;
       fbreak;
     end
 
@@ -477,7 +477,7 @@ COMMON_CONTENT := |*
       gen_string_content_token
       gen_token(:tSTRING_DBEG)
       @top -= 1
-      fnext EXPR;
+      fnext EXPR_BEG;
       fbreak;
     end
   };

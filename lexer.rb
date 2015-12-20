@@ -103,10 +103,7 @@ module Mint
           @literals.last.brace_count -= 1 if tok == '}'
         end
         key = KEYWORDS[tok]
-        if key.is_a?(Array)
-          @cs = key.last
-          key = key.first
-        end
+        key, @cs = key if key.is_a?(Array)
         gen_token(key, tok)
       end
 
