@@ -311,12 +311,6 @@ EXPR := |*
     end
     fbreak;
   };
-  
-  'class' => {
-    gen_keyword_token
-    fnext CLASS;
-    fbreak;
-  };
 
   '<<' [\-~]? ident_char+ => {
     indent, id = current_token.match(/^<<([-~]?)(.+)$/).captures
@@ -333,7 +327,7 @@ EXPR := |*
   };
 
   number     => { gen_number_token(num_type, num_base, num_flags || []); fbreak; };
-  keyword    => { gen_keyword_token;       fbreak; };
+  keyword    => { gen_keyword_token;       fbreak; }; # keyword tokens automatically change the state if needed
   op_asgn    => { gen_op_asgn_token;       fbreak; };
   back_ref   => { gen_token(:tBACK_REF);   fbreak; };
   nth_ref    => { gen_token(:tNTH_REF);    fbreak; };
@@ -347,9 +341,46 @@ EXPR := |*
 *|;
 
 
+#
+# Block comments (=begin ... \n=end)
+#
+BLOCK_COMMENT := |*
+
+  c_eof => {
+    raise SyntaxError, 'embedded document meets end of file'
+  };
+
+  nl '=end' ( wspace (any - nl_eof)* )? nl_eof => {
+    #gen_token(:tCOMMENT, current_token(ts: block_comment_start));
+    fnext BOL;
+    fbreak;
+  };
+
+  any - c_eof; # append
+
+*|;
+
+
+#
+# Keyword 'class'
+# '<<' is left shift (singleton class) and not heredoc
+#
+CLASS := |*
+  '<<' => {
+    gen_keyword_token
+    @top -= 1
+    fnext EXPR;
+    fbreak;
+  };
+
+  any - '<' => { fhold; fret; };
+*|;
+
+
+#
 # Heredoc identifier: <<'ID' | <<"ID" | <<`ID`
 # There is no interpolation inside the identifier
-# Heredocs of type <<' have no interpolation
+# Heredocs of type <<' have no interpolation in content
 HEREDOC_IDENTIFIER := |*
 
   # This is different from MRI: MRI accepts \n in identifiers,
@@ -390,7 +421,7 @@ HEREDOC_CONTENT := |*
       fbreak;
     end
 
-    @p = @ts - 1
+    fexec @ts;
     fcall COMMON_CONTENT;
   };
 
@@ -422,15 +453,26 @@ STRING_CONTENT := |*
 
 
 COMMON_CONTENT := |*
-  c_eof              => { raise SyntaxError, @literals.last.unterminated_string_message };
-  '\\' (any - c_eof);
-  '#' back_ref       => { gen_interpolation_tokens(:tBACK_REF); fret; };
-  '#' nth_ref        => { gen_interpolation_tokens(:tNTH_REF);  fret; };
-  '#' gvar           => { gen_interpolation_tokens(:tGVAR);     fret; };
-  '#' cvar           => { gen_interpolation_tokens(:tCVAR);     fret; };
-  '#' ivar           => { gen_interpolation_tokens(:tIVAR);     fret; };
+  c_eof => { raise SyntaxError, @literals.last.unterminated_string_message };
+
+  '\\' (any - c_eof) => {
+    @literals.last.commit_indent
+  };
+
+  '#' (
+      back_ref %{ tok_type = :tBACK_REF }
+    | nth_ref  %{ tok_type = :tNTH_REF  }
+    | gvar     %{ tok_type = :tGVAR     }
+    | cvar     %{ tok_type = :tCVAR     }
+    | ivar     %{ tok_type = :tIVAR     }
+  ) => {
+    @literals.last.commit_indent
+    gen_interpolation_tokens(tok_type);
+    fret;
+  };
 
   '#{' => {
+    @literals.last.commit_indent
     if @literals.last.interpolates?
       gen_string_content_token
       gen_token(:tSTRING_DBEG)
@@ -441,58 +483,45 @@ COMMON_CONTENT := |*
   };
 
   nl => {
+    lit = @literals.last
+    lit.line_indent = 0
+
     if @line_jump
       fexec @line_jump;
       # content in @te..@line_jump isn't included
-      @literals.last.raw_content << current_token(ts: @literals.last.content_start)
-      @literals.last.content_start = @line_jump
+      lit.content_buffer << current_token(ts: lit.content_start)
+      lit.content_start = @line_jump
       @line_jump = nil
     end
+
     fret;
   };
 
-  any - nl_eof => {
-    if @stack[@top-1] == self.Lex_en_STRING_CONTENT
-      fret;
+  ' ' => {
+    if @literals.last.dedents?
+      @literals.last.tap do |lit|
+        lit.line_indent += 1 if lit.line_indent >= 0
+      end
     end
   };
-*|;
 
-
-#
-# Block comments (=begin ... \n=end)
-#
-BLOCK_COMMENT := |*
-
-  c_eof => {
-    raise SyntaxError, 'embedded document meets end of file'
+  '\t' => {
+    if @literals.last.dedents?
+      @literals.last.tap do |lit|
+        if lit.line_indent >= 0
+          w = lit.line_indent / tab_width + 1
+          lit.line_indent = w * tab_width
+        end
+      end
+    end
   };
 
-  nl '=end' ( wspace (any - nl_eof)* )? nl_eof => {
-    #gen_token(:tCOMMENT, current_token(ts: block_comment_start));
-    fnext BOL;
-    fbreak;
+  any - ([ \t] | nl_eof) => {
+    @literals.last.commit_indent
+    if fcalled_by?( fentry(STRING_CONTENT) ) then fret; end
   };
-
-  any - c_eof; # append
-
 *|;
 
-
-#
-# Keyword 'class'
-# '<<' is left shift (singleton class) and not heredoc
-#
-CLASS := |*
-  '<<' => {
-    gen_keyword_token
-    @top -= 1
-    fnext EXPR;
-    fbreak;
-  };
-
-  any - '<' => { fhold; fret; };
-*|;
 
 
 # ------------------------------------------------------------------------------

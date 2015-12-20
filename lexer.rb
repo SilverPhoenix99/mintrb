@@ -80,8 +80,12 @@ module Mint
         @data[(ts + ots)...(te + ote)]
       end
 
-      def gen_token(type, tok = current_token)
-        @tokens << [type, tok]
+      def fcalled_by?(state)
+        @stack[@top-1] == state
+      end
+
+      def gen_token(type, tok = current_token, **options)
+        @tokens << ( options.empty? ? [type, tok] : [type, tok, options] )
       end
 
       def gen_number_token(num_type, num_base, num_flags)
@@ -90,7 +94,7 @@ module Mint
           when :imaginary then :tIMAGINARY
           else num_type
         end
-        gen_token(num_type, [current_token, num_base])
+        gen_token(num_type, current_token, num_base: num_base)
       end
 
       def gen_keyword_token(tok = current_token)
@@ -98,7 +102,12 @@ module Mint
           @literals.last.brace_count += 1 if tok == '{'
           @literals.last.brace_count -= 1 if tok == '}'
         end
-        gen_token(KEYWORDS[tok], tok)
+        key = KEYWORDS[tok]
+        if key.is_a?(Array)
+          @cs = key.last
+          key = key.first
+        end
+        gen_token(key, tok)
       end
 
       def gen_op_asgn_token(tok = current_token(ote: -1))
@@ -130,14 +139,18 @@ module Mint
       def gen_string_content_token(ote = -token_length)
         lit = @literals.last
         # add content to buffer
-        lit.raw_content << current_token(ts: lit.content_start, ote: ote)
-        gen_token(:tSTRING_CONTENT, lit.processed_content(tab_width))
-        lit.raw_content.clear
+        lit.content_buffer << current_token(ts: lit.content_start, ote: ote)
+        gen_token(:tSTRING_CONTENT, lit.content_buffer)
+        lit.clear_buffer
       end
 
       def gen_string_end_token
-        @literals.pop
-        gen_token(:tSTRING_END, current_token)
+        lit = @literals.pop
+        if lit.dedents?
+          gen_token(:tSTRING_END, current_token, dedent: lit.indent)
+        else
+          gen_token(:tSTRING_END, current_token)
+        end
       end
 
       # This method should only be called at an `fexec'
@@ -161,19 +174,19 @@ module Mint
       end
 
     KEYWORDS = {
-      'class'        => :kCLASS,
-      'BEGIN'        => :kGBEGIN,
-      'END'          => :kGEND,
       'alias'        => :kALIAS,
       'and'          => :kAND,
+      'BEGIN'        => :kAPP_BEGIN,
       'begin'        => :kBEGIN,
       'break'        => :kBREAK,
       'case'         => :kCASE,
+      'class'        => [:kCLASS, self.Lex_en_CLASS],
       'def'          => :kDEF,
       'defined?'     => :kDEFINED,
       'do'           => :kDO,
       'else'         => :kELSE,
       'elsif'        => :kELSIF,
+      'END'          => :kAPP_END,
       'end'          => :kEND,
       'ensure'       => :kENSURE,
       'false'        => :kFALSE,

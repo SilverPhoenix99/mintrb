@@ -160,4 +160,38 @@ RSpec.describe Mint::Lexer do
         [false, false]
     ]
   end
+
+  it 'has dedent = 2' do
+    subject.data = "<<~XX\n  aaa\n   aaa\nXX"
+    subject.to_a.should == [
+        [:tSTRING_BEG,     '<<~XX'],
+        [:tSTRING_CONTENT, "  aaa\n   aaa\n"],
+        [:tSTRING_END,     'XX', dedent: 2],
+        [false, false]
+    ]
+  end
+
+  it 'has dedent = 2 again' do
+    subject.data = "<<~XX\n  aaa\n   aaa\nXX"
+    subject.to_a.should == [
+        [:tSTRING_BEG,     '<<~XX'],
+        [:tSTRING_CONTENT, "  aaa\n   aaa\n"],
+        [:tSTRING_END,     'XX', dedent: 2],
+        [false, false]
+    ]
+  end
+
+  it 'has interpolation which interferes with dedent' do
+    # even if @a = '  aaa', dedent will be 1
+    subject.data = "<<~XX\n  aaa\n   aaa\n \#@a\nXX"
+    subject.to_a.should == [
+        [:tSTRING_BEG,     '<<~XX'],
+        [:tSTRING_CONTENT, "  aaa\n   aaa\n "],
+        [:tSTRING_DVAR,    '#'],
+        [:tIVAR,           '@a'],
+        [:tSTRING_CONTENT, "\n"],
+        [:tSTRING_END,     'XX', dedent: 1],
+        [false, false]
+    ]
+  end
 end
