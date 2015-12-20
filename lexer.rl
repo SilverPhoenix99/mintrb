@@ -17,9 +17,6 @@
 
 # TODO: magic comments
 
-# TODO: error => numeric literal without digits
-# TODO: error => trailing `_' in number
-
 # TODO: qmark = '?'
 #    can be a char '?a'
 #    can be ternary a ? b : c
@@ -80,26 +77,30 @@ line_comment = '#' (any - nl_eof)*;
 # Numerics
 #
 
+# TODO: error => numeric literal without digits
+
+action RacSuf { (num_flags ||= []) << :rational }
+action CmxSuf { (num_flags ||= []) << :imaginary }
+action IntNum { num_type = :tINTEGER }
+action FloNum { num_type = :tFLOAT }
+action TrailU { raise SyntaxError, "trailing `_' in number" }
+
 bdigit = [01];
 odigit = [0-7];
 
-udigits = digit ( '_'? digit )*; # digits with leading `_' like in 1_000_00
+udigits = digit ( '_'? digit )* ('_' %TrailU)? ; # digits with leading `_' like in 1_000_00
 
-bin_number  =   '0' [bB]   bdigit ( '_'? bdigit )* %{ num_base =  2; };
-oct_number  =   '0' [oO_]? odigit ( '_'? odigit )* %{ num_base =  8; };
-dec_number  =   '0' [dD]   udigits                 %{ num_base = 10; };
-hex_number  =   '0' [xX]   xdigit ( '_'? xdigit )* %{ num_base = 16; };
-int_number  = ( '0' | [1-9] ( '_'? digit )* )      %{ num_base = 10; };
+bin_number  =   '0' [bB]   bdigit ( '_'? bdigit )* ('_' %TrailU)? %{ num_base =  2; };
+oct_number  =   '0' [oO_]? odigit ( '_'? odigit )* ('_' %TrailU)? %{ num_base =  8; };
+dec_number  =   '0' [dD]   udigits                                %{ num_base = 10; };
+hex_number  =   '0' [xX]   xdigit ( '_'? xdigit )* ('_' %TrailU)? %{ num_base = 16; };
+int_number  = ( '0' | [1-9] ( '_'? digit )* )      ('_' %TrailU)? %{ num_base = 10; };
 
 sign = [+\-];
 
 real_frac = '.' udigits;
 real_exp  = [eE] sign? udigits;
 
-action RacSuf { (num_flags ||= []) << :rational }
-action CmxSuf { (num_flags ||= []) << :imaginary }
-action IntNum { num_type = :tINTEGER }
-action FloNum { num_type = :tFLOAT }
 
 real_number =
   int_number

@@ -194,4 +194,32 @@ RSpec.describe Mint::Lexer do
         [false, false]
     ]
   end
+
+  it 'throws trailing underscore error in integers' do
+    expect do
+      subject.data = '11_'
+      subject.to_a
+    end.to raise_error SyntaxError, "trailing `_' in number"
+  end
+
+  it 'throws trailing underscore error in integer part of a float' do
+    expect do
+      subject.data = '1_.11'
+      subject.to_a
+    end.to raise_error SyntaxError, "trailing `_' in number"
+  end
+
+  it 'throws trailing underscore error in fractional part of a float' do
+    expect do
+      subject.data = '1.11_'
+      subject.to_a
+    end.to raise_error SyntaxError, "trailing `_' in number"
+  end
+
+  it 'throws trailing underscore error in exponential part of a float' do
+    expect do
+      subject.data = '1.11e1_'
+      subject.to_a
+    end.to raise_error SyntaxError, "trailing `_' in number"
+  end
 end
