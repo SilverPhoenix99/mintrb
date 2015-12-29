@@ -122,9 +122,60 @@ RSpec.describe Mint::Lexer do
     it 'parses %regexp' do
       subject.data = '%r(this regexp)'
       subject.to_a.should == [
-          [:tSTRING_BEG,     '%r('],
+          [:tREGEXP_BEG,     '%r('],
           [:tSTRING_CONTENT, 'this regexp'],
           [:tSTRING_END,     ')'],
+          [false, false]
+      ]
+    end
+  end
+
+  describe 'Words' do
+    it 'splits words' do
+      subject.data = '%w{a b}'
+      subject.to_a.should == [
+          [:tQWORDS_BEG,     '%w{'],
+          [:tSTRING_CONTENT, 'a'],
+          [:tSPACE,          ' '],
+          [:tSTRING_CONTENT, 'b'],
+          [:tSTRING_END,     '}'],
+          [false, false]
+      ]
+    end
+
+    it 'splits words with interpolation' do
+      subject.data = %|%W{a\n  b  foo\#{ @c }bar  }|
+      subject.to_a.should == [
+          [:tWORDS_BEG,      '%W{'],
+          [:tSTRING_CONTENT, 'a'],
+          [:tSPACE,          "\n  "],
+          [:tSTRING_CONTENT, 'b'],
+          [:tSPACE,          '  '],
+          [:tSTRING_CONTENT, 'foo'],
+          [:tSTRING_DBEG,    '#{'],
+          [:tIVAR,           '@c'],
+          [:tSTRING_DEND,    '}'],
+          [:tSTRING_CONTENT, 'bar'],
+          [:tSPACE,          '  '],
+          [:tSTRING_END,     '}'],
+          [false, false]
+      ]
+    end
+
+    it 'empty words' do
+      subject.data = '%w{}'
+      subject.to_a.should == [
+          [:tQWORDS_BEG,     '%w{'],
+          [:tSTRING_END,     '}'],
+          [false, false]
+      ]
+    end
+
+    it 'empty words with spaces' do
+      subject.data = "%w{ \t\n}"
+      subject.to_a.should == [
+          [:tQWORDS_BEG,     '%w{'],
+          [:tSTRING_END,     '}'],
           [false, false]
       ]
     end

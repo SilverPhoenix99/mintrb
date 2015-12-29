@@ -17,7 +17,6 @@ module Mint
     end
     STATES.freeze
 
-
     def initialize(data = '', filename = '(string)')
       self.data = data
       @filename = filename
@@ -148,9 +147,7 @@ module Mint
       end
 
       def gen_literal_token(tok: current_token)
-        delimiter = Literal::STRING_END[tok[-1]] || tok
-
-        @literals << lit = Literal.new(delimiter, @te)
+        @literals << lit = Literal.new(tok, @te)
         gen_token(lit.type, tok)
       end
 
@@ -172,8 +169,10 @@ module Mint
         lit = @literals.last
         # add content to buffer
         lit.content_buffer << current_token(ts: lit.content_start, ote: ote)
+        return false if lit.words? && lit.content_buffer.length == 0
         gen_token(:tSTRING_CONTENT, lit.content_buffer)
         lit.clear_buffer
+        true
       end
 
       def gen_string_end_token

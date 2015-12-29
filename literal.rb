@@ -58,22 +58,27 @@ module Mint
     def unterminated_string_message
       raise 'Not Implemented'
     end
+
+    def words?
+      false
+    end
   end
+
 
   class Literal
     include BaseLiteral
 
     STRING_BEG = {
-      'W' => :tWORDS_BEG,
-      'w' => :tQWORDS_BEG,
-      'I' => :tSYMBOLS_BEG,
-      'i' => :tQSYMBOLS_BEG,
-      'x' => :tXSTRING_BEG,
-      '`' => :tXSTRING_BEG,
-      'r' => :tREGEXP_BEG,
-      '/' => :tREGEXP_BEG,
-      's' => :tSYMBEG,
-      ':' => :tSYMBEG
+      '%W' => :tWORDS_BEG,
+      '%w' => :tQWORDS_BEG,
+      '%I' => :tSYMBOLS_BEG,
+      '%i' => :tQSYMBOLS_BEG,
+      '%x' => :tXSTRING_BEG,
+      '`'  => :tXSTRING_BEG,
+      '%r' => :tREGEXP_BEG,
+      '/'  => :tREGEXP_BEG,
+      '%s' => :tSYMBEG,
+      ':'  => :tSYMBEG
     }
 
     STRING_END = {
@@ -91,7 +96,11 @@ module Mint
     end
 
     def delimiter?(delimiter)
-      @delimiter[-1] == delimiter
+      end_delimiter[-1] == delimiter
+    end
+
+    def end_delimiter
+      Literal::STRING_END[@delimiter[-1]] || @delimiter
     end
 
     def interpolates?
@@ -99,16 +108,20 @@ module Mint
     end
 
     def state
-      Lexer.Lex_en_STRING_CONTENT
+      Lexer::STRING_DELIMITER
     end
 
     def type
-      index = delimiter[0] == '%' ? 1 : 0
-      STRING_BEG[delimiter[index]] || :tSTRING_BEG
+      delim = @delimiter[0] == '%' ? @delimiter[0..1] : @delimiter
+      STRING_BEG[delim] || :tSTRING_BEG
     end
 
     def unterminated_string_message
       'unterminated string meets end of file'
+    end
+
+    def words?
+      @delimiter =~ /^%[WwIi]/
     end
   end
 
@@ -157,7 +170,7 @@ module Mint
     end
 
     def state
-      Lexer.Lex_en_HEREDOC_CONTENT
+      Lexer::HEREDOC_DELIMITER
     end
 
     def type

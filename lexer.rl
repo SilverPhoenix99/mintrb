@@ -9,12 +9,6 @@
 # The first state is BOL (beginning of line)
 
 
-
-
-# AMBIGUOUS:
-# 'a/' - can be a method with a regexp or a value with a div
-# 'a -1' - can be a(1.-@) or a.-(1)
-
 # TODO: magic comments
 
 
@@ -61,18 +55,18 @@ action RacSuf { (num_flags ||= []) << :rational }
 action CmxSuf { (num_flags ||= []) << :imaginary }
 action IntNum { num_type = :tINTEGER }
 action FloNum { num_type = :tFLOAT }
-action TrailU { raise SyntaxError, "trailing `_' in number" }
+action TrailError { raise SyntaxError, "trailing `_' in number" }
 
 bdigit = [01];
 odigit = [0-7];
 
-udigits = digit ( '_'? digit )* ('_' %TrailU)? ; # digits with leading `_' like in 1_000_00
+udigits = digit ( '_'? digit )* ('_' %TrailError)? ; # digits with leading `_' like in 1_000_00
 
-bin_number  =   '0' [bB]   bdigit ( '_'? bdigit )* ('_' %TrailU)? %{ num_base =  2; };
-oct_number  =   '0' [oO_]? odigit ( '_'? odigit )* ('_' %TrailU)? %{ num_base =  8; };
+bin_number  =   '0' [bB]   bdigit ( '_'? bdigit )* ('_' %TrailError)? %{ num_base =  2; };
+oct_number  =   '0' [oO_]? odigit ( '_'? odigit )* ('_' %TrailError)? %{ num_base =  8; };
 dec_number  =   '0' [dD]   udigits                                %{ num_base = 10; };
-hex_number  =   '0' [xX]   xdigit ( '_'? xdigit )* ('_' %TrailU)? %{ num_base = 16; };
-int_number  = ( '0' | [1-9] ( '_'? digit )* )      ('_' %TrailU)? %{ num_base = 10; };
+hex_number  =   '0' [xX]   xdigit ( '_'? xdigit )* ('_' %TrailError)? %{ num_base = 16; };
+int_number  = ( '0' | [1-9] ( '_'? digit )* )      ('_' %TrailError)? %{ num_base = 10; };
 
 sign = [+\-];
 
@@ -99,6 +93,27 @@ rationable_number = (
 number = ( rationable_number | real_number ) ('i' %CmxSuf)? ;
 
 unary_sign = wspace+ sign ( any - (nl_wspace | digit | '=') );
+
+
+# ------------------------------------------------------------------------------
+#
+# Character escaping
+#
+
+
+ctrl_char = '\\' ( 'c' | 'C-' );
+meta_char = '\\M-';
+
+control_escape = ctrl_char meta_char? | meta_char ctrl_char?;
+
+unicode_escape = '\\u' xdigit{4}
+               | '\\u{' xdigit{1,6} '}';
+
+multi_unicode_escape = '\\u' xdigit{4}
+                     | '\\u{' xdigit{1,6} (' ' xdigit{1,6})* '}';
+
+octal_escape = '\\' odigit{1,3};
+hex_escape   = '\\x' xdigit{1,2};
 
 
 # ------------------------------------------------------------------------------
@@ -236,7 +251,7 @@ action NewLine {
 }
 
 action Number {
-  # TODO maybe: tUMINUS_NUM
+  # TODO: maybe tUMINUS_NUM
   gen_number_token(num_type, num_base, num_flags || [])
   if fcalled_by?(COMMON_EXPR, OPERATOR_EXPR, reject: false)
     pop_fcall
@@ -257,7 +272,7 @@ action StringStart {
   unless REJECTED_CALLS.include?(@cs)
     push_fcall # this is so that strings can identify who called them if needed
   end
-  fnext STRING_CONTENT;
+  fnext STRING_DELIMITER;
   fbreak;
 }
 
@@ -273,7 +288,7 @@ action Heredoc {
   lit = gen_heredoc_token(indent, '', id)
   fexec lit.content_start = next_bol!;
   push_fcall
-  fnext HEREDOC_CONTENT;
+  fnext HEREDOC_DELIMITER;
   fbreak;
 }
 
@@ -393,7 +408,7 @@ EXPR_BEG := |*
 # ------------------------------------------------------------------------------
 
 EXPR_ARG := |*
-  # TODO EXPR_ARG is always accepting EXPR_LABEL. Verify when not to allow EXPR_LABEL with EXPR_ARG
+  # TODO: EXPR_ARG is always accepting EXPR_LABEL. Verify when not to allow EXPR_LABEL with EXPR_ARG
 
   unary_sign            => UnarySign;
   wspace+ sign number   => Number;
@@ -1017,7 +1032,7 @@ COMMON_EXPR := |*
     raise SyntaxError, 'no .<digit> floating literal anymore; put 0 before dot'
   };
 
-  # TODO ' and " are accepted as labels when label_possible? == true
+  # TODO: ' and " are accepted as labels when label_possible? == true
   [''""``/] => StringStart;
 
   op_asgn => {
@@ -1210,7 +1225,7 @@ HEREDOC_IDENTIFIER := |*
       id = current_token(ts: id_start, ote: -1)
       lit = gen_heredoc_token(indent, delimiter, id)
       fexec lit.content_start = next_bol!;
-      fnext HEREDOC_CONTENT;
+      fnext HEREDOC_DELIMITER;
       fbreak;
     end
   };
@@ -1220,7 +1235,7 @@ HEREDOC_IDENTIFIER := |*
 *|;
 
 
-HEREDOC_CONTENT := |*
+HEREDOC_DELIMITER := |*
   c_eof => EofLiteralError;
 
   (any - nl_eof)* nl_eof => {
@@ -1236,90 +1251,13 @@ HEREDOC_CONTENT := |*
     end
 
     fexec @ts;
-    fcall COMMON_CONTENT;
+    fcall HEREDOC_CONTENT;
   };
 
 *|;
 
-
-#
-# Strings ######################################################################
-#
-STRING_CONTENT := |*
+HEREDOC_CONTENT := |*
   c_eof => EofLiteralError;
-
-  alnum;
-
-  ( any - alnum ) ':' [^:] => {
-    fhold; # hold the last char [^:]
-
-    # if it can't be labeled, then hold the last char ':'
-
-    is_labeled = fcalled_by?(EXPR_ARG, EXPR_CMDARG, EXPR_LABELARG) || ( #!cond? && # TODO
-                 fcalled_by?(EXPR_BEG, EXPR_ENDFN))
-
-    tok = if is_labeled
-            current_token(ote: -1)
-          else
-            fexec @te -= 1; # hold the last char ':'
-            current_token
-          end
-
-    unless @literals.last.delimiter?(tok)
-      fexec @ts;
-      fcall COMMON_CONTENT;
-    end
-
-    # found delimiter => end string
-
-    gen_string_content_token
-    gen_string_end_token
-    pop_fcall
-    fnext *(is_labeled ? EXPR_BEG : EXPR_END);
-    fbreak;
-  };
-
-  any => {
-    unless @literals.last.delimiter?(current_token)
-      fexec @ts;
-      fcall COMMON_CONTENT;
-    end
-
-    # found delimiter => end string
-
-    gen_string_content_token
-    gen_string_end_token
-    fnext EXPR_END;
-    pop_fcall
-    fbreak;
-  };
-
-*|;
-
-
-#
-# String Content ###############################################################
-# Content that is common to strings and heredocs
-#
-COMMON_CONTENT := |*
-  c_eof => EofLiteralError;
-
-  '\\' (any - c_eof) => {
-    @literals.last.commit_indent
-  };
-
-  '#' any_var => { gen_interpolation_tokens(token_type); fret; };
-
-  '#{' => {
-    @literals.last.commit_indent
-    if @literals.last.interpolates?
-      gen_string_content_token
-      gen_token(:tSTRING_DBEG)
-      pop_fcall
-      fnext EXPR_BEG;
-      fbreak;
-    end
-  };
 
   nl => {
     lit = @literals.last
@@ -1336,16 +1274,26 @@ COMMON_CONTENT := |*
     fret;
   };
 
+  '\\' (any - c_eof) => { @literals.last.commit_indent };
+
+  '#' any_var => { gen_interpolation_tokens(token_type) };
+
+  '#{' => {
+    @literals.last.commit_indent
+    if @literals.last.interpolates?
+      gen_string_content_token
+      gen_token(:tSTRING_DBEG)
+      pop_fcall
+      fnext EXPR_BEG;
+      fbreak;
+    end
+  };
+
   ' ' => {
     if @literals.last.dedents?
       @literals.last.tap do |lit|
         lit.line_indent += 1 if lit.line_indent >= 0
       end
-    end
-
-    if fcalled_by?(STRING_CONTENT)
-      # no need to fhold -> if it reached here, then it wasn't the delimiter
-      fret;
     end
   };
 
@@ -1358,36 +1306,153 @@ COMMON_CONTENT := |*
         end
       end
     end
+  };
 
-    if fcalled_by?(STRING_CONTENT)
-      # no need to fhold -> if it reached here, then it wasn't the delimiter
+  any => { @literals.last.commit_indent };
+*|;
+
+
+#
+# Strings ######################################################################
+#
+STRING_DELIMITER := |*
+  c_eof => EofLiteralError;
+
+  alnum;
+
+  ( any - alnum ) ':' [^:] => {
+    fexec @te -= 1; # hold the last char [^:]
+
+    is_labeled = fcalled_by?(EXPR_ARG, EXPR_CMDARG, EXPR_LABELARG) || (
+                 !@in_cmd && fcalled_by?(EXPR_BEG, EXPR_ENDFN))
+
+    tok = if is_labeled
+      current_token(ote: -1)
+    else
+      fexec @te -= 1; # hold the last char ':'
+      current_token
+    end
+
+    unless @literals.last.delimiter?(tok)
+      fexec @ts;
+      fcall *(@literals.last.words? ? WORD_CONTENT : STRING_CONTENT);
+    end
+
+    # found delimiter => end string
+
+    gen_string_content_token
+    gen_string_end_token
+    pop_fcall
+    fnext *(is_labeled ? EXPR_BEG : EXPR_END);
+    fbreak;
+  };
+
+  any - alnum => {
+    unless @literals.last.delimiter?(current_token)
+      fhold;
+      fcall *(@literals.last.words? ? WORD_CONTENT : STRING_CONTENT);
+    end
+
+    # found delimiter => end string
+
+    gen_string_content_token
+    gen_string_end_token
+    fnext EXPR_END;
+    pop_fcall
+    fbreak;
+  };
+
+*|;
+
+
+WORD_CONTENT := |*
+  # pass-through to take care of whitespace
+
+  space+ => {
+    unless gen_string_content_token
+      @literals.last.content_start = @te
       fret;
     end
+
+    @literals.last.content_start = @te
+    gen_token(:tSPACE)
+    pop_fcall
+    fnext STRING_DELIMITER;
+    fbreak;
   };
+
+  #TODO: embedded heredocs
+  #nl => {
+  #  if @line_jump
+  #    # content in @te..@line_jump isn't included
+  #    lit = @literals.last
+  #    lit.content_buffer << current_token(ts: lit.content_start)
+  #    lit.content_start = @line_jump
+  #    fexec @line_jump;
+  #    @line_jump = nil
+  #  end
+  #
+  #  fret;
+  #};
 
   any => {
-    @literals.last.commit_indent
-    if fcalled_by?(STRING_CONTENT)
-      # no need to fhold -> if it reached here, then it wasn't the delimiter
-      fret;
-    end
+    fhold;
+    fgoto STRING_CONTENT;
   };
 *|;
+
+
+STRING_CONTENT := |*
+  c_eof => EofLiteralError;
+
+  multi_unicode_escape;
+  control_escape (ascii - '\\');
+  control_escape? (
+      octal_escape
+    | hex_escape
+    | '\\' (ascii - [CMcux0-7])
+  );
+
+  # MRI gives different errors:
+  # it gives "unexpected tINTEGER" or "unexpected tIDENTIFIER"
+  '\\u'      => { raise SyntaxError, 'invalid Unicode escape' };
+  '\\x'      => { raise SyntaxError, 'invalid hex escape' };
+  '\\' [cCM] => { raise SyntaxError, 'Invalid escape character syntax' };
+
+  '\\' (any - c_eof);
+
+  '#' any_var => { gen_interpolation_tokens(token_type); fret; };
+
+  '#{' => {
+    if @literals.last.interpolates?
+      gen_string_content_token
+      gen_token(:tSTRING_DBEG)
+      pop_fcall
+      fnext EXPR_BEG;
+      fbreak;
+    end
+  };
+
+  nl => {
+    if @line_jump
+      # content in @te..@line_jump isn't included
+      lit = @literals.last
+      lit.content_buffer << current_token(ts: lit.content_start)
+      lit.content_start = @line_jump
+      fexec @line_jump;
+      @line_jump = nil
+    end
+
+    fret;
+  };
+
+  any => { fret; };
+*|;
+
 
 #
 # Single characters (e.g.: ?a) #################################################
 #
-
-ctrl_char = '\\' ( 'c' | 'C-' );
-meta_char = '\\M-';
-
-control_escape = ctrl_char meta_char? | meta_char ctrl_char?;
-
-unicode_escape = '\\u' xdigit{4}
-               | '\\u{' xdigit{1,6} '}';
-
-octal_escape = '\\' odigit{1,3};
-hex_escape   = '\\x' xdigit{1,2};
 
 CHAR := |*
   c_eof => { raise SyntaxError, 'incomplete character syntax' };
@@ -1422,7 +1487,6 @@ CHAR := |*
     fbreak;
   };
 *|;
-
 
 
 # ------------------------------------------------------------------------------
