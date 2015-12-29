@@ -995,7 +995,7 @@ COMMON_EXPR := |*
       push_fcall EXPR_BEG
       fnext BOL;
     else
-      gen_keyword_token('.')
+      gen_keyword_token('.', location: location(@te - 2))
       fnext EXPR_DOT;
     end
 
@@ -1011,7 +1011,7 @@ COMMON_EXPR := |*
       push_fcall EXPR_BEG
       fnext BOL;
     else
-      gen_keyword_token('&.')
+      gen_keyword_token('&.', location: location(@te - 2))
       fnext EXPR_DOT;
     end
 

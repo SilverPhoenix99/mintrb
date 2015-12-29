@@ -49,7 +49,15 @@ module Mint
       @literals    = []
       @line_jump   = nil
       @in_cmd      = false
-      @lines       = @data.each_char.each_with_index.select { |c, _| c == "\n" }.map(&:last)
+
+      @lines       = @data.each_char
+                         .each_with_index
+                         .select { |c, _| c == "\n" }
+                         .map(&:last)
+                         .each_with_index
+                         .map { |p, l| [p+1, l+1] }
+      @lines.unshift [0, 0]
+      @lines << [ @data.length + 1, @lines.count ]
 
       nil
     end
@@ -92,6 +100,13 @@ module Mint
     end
     attr_writer :tab_width
 
+    protected
+
+      def location(pos = @ts)
+        line = @lines.bsearch { |l| l.first > pos }
+        [line.last, pos - @lines[line.last - 1].first + 1]
+      end
+
     private
 
       def current_token(ts: @ts, te: @te, ots: 0, ote: 0)
@@ -112,13 +127,15 @@ module Mint
         states.include?(c)
       end
 
-      def gen_token(type, tok = current_token, **options)
-        @tokens << ( options.empty? ? [type, tok] : [type, tok, options] )
+      def gen_token(type, tok = current_token, location: self.location, **options)
+        @tokens << ( options.empty? ? [type, tok, location] : [type, tok, location, options] )
       end
 
       def gen_heredoc_token(indent, delimiter, id)
         @literals << heredoc = Heredoc.new(indent, delimiter, id, @te)
-        gen_token(heredoc.type, heredoc.full_id)
+        # '<<' [~-]? '"' <id> '"' =>
+        id_length = delimiter == '' ? 0 : 3 + id.length + indent.length
+        gen_token(heredoc.type, heredoc.full_id, location: location(@ts - id_length))
         heredoc
       end
 
@@ -128,11 +145,11 @@ module Mint
         return unless lit.interpolates?
         gen_string_content_token(- tok.length - 1)
         gen_token(:tSTRING_DVAR, '#')
-        gen_token(type, tok)
+        gen_token(type, tok, location: location(@ts + 1))
         lit.content_start = @te
       end
 
-      def gen_keyword_token(tok = current_token)
+      def gen_keyword_token(tok = current_token, location: self.location)
         unless @literals.empty?
           @literals.last.brace_count += 1 if tok == '{'
           @literals.last.brace_count -= 1 if tok == '}'
@@ -143,7 +160,7 @@ module Mint
           @cs = state
           @in_cmd = true if state == EXPR_BEG
         end
-        gen_token(key, tok)
+        gen_token(key, tok, location: location)
       end
 
       def gen_literal_token(tok: current_token)
@@ -170,7 +187,7 @@ module Mint
         # add content to buffer
         lit.content_buffer << current_token(ts: lit.content_start, ote: ote)
         return false if lit.words? && lit.content_buffer.length == 0
-        gen_token(:tSTRING_CONTENT, lit.content_buffer)
+        gen_token(:tSTRING_CONTENT, lit.content_buffer, location: location(lit.content_start))
         lit.clear_buffer
         true
       end
@@ -188,16 +205,6 @@ module Mint
           gen_token(:tSTRING_END, tok)
         end
       end
-
-      LABELS1 = [EXPR_BEG, EXPR_ENDFN]
-      LABELS2 = [EXPR_ARG, EXPR_CMDARG]
-      def label_possible?
-        (LABELS1.include?(@cs) && !@in_cmd) || LABELS2.include?(@cs)
-      end
-
-      # def label_suffix?(n = 0)
-      #   peek(n) == ':' && peek(n + 1) == ':'
-      # end
 
       # This method should only be called at an `fexec'
       def next_bol!
