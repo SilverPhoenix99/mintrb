@@ -72,7 +72,8 @@ module Mint
       '`' => :tXSTRING_BEG,
       'r' => :tREGEXP_BEG,
       '/' => :tREGEXP_BEG,
-      's' => :tSYMBEG
+      's' => :tSYMBEG,
+      ':' => :tSYMBEG
     }
 
     STRING_END = {
@@ -94,7 +95,7 @@ module Mint
     end
 
     def interpolates?
-      !(@delimiter =~ /^('|%[qwis])/)
+      @delimiter !~ /^('|%[qwis])/
     end
 
     def state
