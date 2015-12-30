@@ -7,16 +7,8 @@ module Mint
       @brace_count = 0
     end
 
-    def clear_buffer
-      @content_buffer = String.new
-    end
-
     def commit_indent
       # do nothing
-    end
-
-    def content_buffer
-      @content_buffer ||= String.new
     end
 
     def dedents?
@@ -45,6 +37,10 @@ module Mint
 
     def line_indent=(_)
       # do nothing
+    end
+
+    def regexp?
+      false
     end
 
     def state
@@ -105,6 +101,10 @@ module Mint
 
     def interpolates?
       @delimiter !~ /^('|%[qwis])/
+    end
+
+    def regexp?
+      @delimiter =~ %r{^(/|%r)}
     end
 
     def state

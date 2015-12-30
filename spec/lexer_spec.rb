@@ -73,7 +73,6 @@ RSpec.describe Mint::Lexer do
           [:tSTRING_DBEG,    '#{',             [1, 18]],
           [:tIVAR,           '@interpolation', [1, 20]],
           [:tSTRING_DEND,    '}',              [1, 34]],
-          [:tSTRING_CONTENT, '',               [1, 35]],
           [:tSTRING_END,     '"',              [1, 35]],
           [false, false]
       ]
@@ -85,16 +84,6 @@ RSpec.describe Mint::Lexer do
           [:tSTRING_BEG,     "'",                      [1,  1]],
           [:tSTRING_CONTENT, 'no #@var_interpolation', [1,  2]],
           [:tSTRING_END,     "'",                      [1, 24]],
-          [false, false]
-      ]
-    end
-
-    it 'parses regular expressions' do
-      subject.data = '/abc/'
-      subject.to_a.should == [
-          [:tREGEXP_BEG,     '/',   [1, 1]],
-          [:tSTRING_CONTENT, 'abc', [1, 2]],
-          [:tREGEXP_END,     '/',   [1, 5]],
           [false, false]
       ]
     end
@@ -117,16 +106,6 @@ RSpec.describe Mint::Lexer do
         [:tSTRING_END,     '>',              [1, 17]],
         [false, false]
     ]
-    end
-
-    it 'parses %regexp' do
-      subject.data = '%r(this regexp)'
-      subject.to_a.should == [
-          [:tREGEXP_BEG,     '%r(',         [1,  1]],
-          [:tSTRING_CONTENT, 'this regexp', [1,  4]],
-          [:tSTRING_END,     ')',           [1, 15]],
-          [false, false]
-      ]
     end
   end
 
@@ -181,13 +160,59 @@ RSpec.describe Mint::Lexer do
     end
   end
 
+  describe 'Regexp' do
+    it 'parses regular expressions' do
+      subject.data = '/abc/'
+      subject.to_a.should == [
+          [:tREGEXP_BEG,     '/',   [1, 1]],
+          [:tSTRING_CONTENT, 'abc', [1, 2]],
+          [:tREGEXP_END,     '/',   [1, 5], options: []],
+          [false, false]
+      ]
+    end
+
+    it 'parses regexp with options' do
+      subject.data = '/abcabc/mmiixxoo'
+      subject.to_a.should == [
+          [:tREGEXP_BEG,     '/',         [1, 1]],
+          [:tSTRING_CONTENT, 'abcabc',    [1, 2]],
+          [:tREGEXP_END,     '/mmiixxoo', [1, 8], options: [ :extend, :ignore_case, :multi_line, :once ]],
+          [false, false]
+      ]
+    end
+
+    it 'parses %regexp' do
+      subject.data = '%r(this regexp)'
+      subject.to_a.should == [
+          [:tREGEXP_BEG,     '%r(',         [1,  1]],
+          [:tSTRING_CONTENT, 'this regexp', [1,  4]],
+          [:tREGEXP_END,     ')',           [1, 15], options: []],
+          [false, false]
+      ]
+    end
+
+    it 'parses %r with options' do
+      subject.data = '%r(foo bar)mixomixo'
+      subject.to_a.should == [
+          [:tREGEXP_BEG,     '%r(',       [1,  1]],
+          [:tSTRING_CONTENT, 'foo bar',   [1,  4]],
+          [:tREGEXP_END,     ')mixomixo', [1, 11], options: [ :extend, :ignore_case, :multi_line, :once ]],
+          [false, false]
+      ]
+    end
+
+    it 'raise error on unknown option' do
+      subject.data = '/abc/mixoab'
+      expect { subject.to_a }.to raise_error SyntaxError, 'unknown regexp options - ab'
+    end
+  end
+
   describe 'Heredocs' do
 
     it 'parses empty heredocs' do
       subject.data = "<<AAA\nAAA"
       subject.to_a.should == [
           [:tSTRING_BEG,     '<<AAA', [1, 1]],
-          [:tSTRING_CONTENT, '',      [2, 1]],
           [:tSTRING_END,     'AAA',   [2, 1]],
           [:kNL,             "\n",    [1, 6]],
           [false, false]
@@ -217,17 +242,14 @@ RSpec.describe Mint::Lexer do
     end
 
     it "doesn't find end of heredoc" do
-      expect do
-        subject.data = "<<AAA\n AAA"
-        subject.to_a
-      end.to raise_error SyntaxError, %q(can't find string "AAA" anywhere before EOF)
+      subject.data = "<<AAA\n AAA"
+      expect { subject.to_a }.to raise_error SyntaxError, %q(can't find string "AAA" anywhere before EOF)
     end
 
     it 'finds the end of heredoc' do
       subject.data = "<<-AAA\n AAA"
       subject.to_a.should == [
           [:tSTRING_BEG,     '<<-AAA', [1, 1]],
-          [:tSTRING_CONTENT, '',       [2, 1]],
           [:tSTRING_END,     ' AAA',   [2, 1]],
           [:kNL,             "\n",     [1, 7]],
           [false, false]
@@ -252,16 +274,17 @@ RSpec.describe Mint::Lexer do
     it 'parses embedded heredocs' do
       subject.data = "<<XX\nxxx\n\#{ <<YY }zzz\nyyy\nYY\nwww\nXX"
       subject.to_a.should == [
-          [:tSTRING_BEG,     '<<XX',       [1,  1]],
-          [:tSTRING_CONTENT, "xxx\n",      [2,  1]],
-          [:tSTRING_DBEG,    '#{',         [3,  1]],
-          [:tSTRING_BEG,     '<<YY',       [3,  4]],
-          [:tSTRING_CONTENT, "yyy\n",      [4,  1]],
-          [:tSTRING_END,     "YY\n",       [5,  1]],
-          [:tSTRING_DEND,    '}',          [3,  9]],
-          [:tSTRING_CONTENT, "zzz\nwww\n", [3, 10]],
-          [:tSTRING_END,     'XX',         [7,  1]],
-          [:kNL,             "\n",         [1,  5]],
+          [:tSTRING_BEG,     '<<XX',  [1,  1]],
+          [:tSTRING_CONTENT, "xxx\n", [2,  1]],
+          [:tSTRING_DBEG,    '#{',    [3,  1]],
+          [:tSTRING_BEG,     '<<YY',  [3,  4]],
+          [:tSTRING_CONTENT, "yyy\n", [4,  1]],
+          [:tSTRING_END,     "YY\n",  [5,  1]],
+          [:tSTRING_DEND,    '}',     [3,  9]],
+          [:tSTRING_CONTENT, "zzz\n", [3, 10]],
+          [:tSTRING_CONTENT, "www\n", [6,  1]],
+          [:tSTRING_END,     'XX',    [7,  1]],
+          [:kNL,             "\n",    [1,  5]],
           [false, false]
       ]
     end
@@ -269,26 +292,27 @@ RSpec.describe Mint::Lexer do
     it 'parses multiple embedded heredocs' do
       subject.data = "<<XX\nxxx \#{ <<YY } www\ny \#{ <<ZZ + 'iii' } y\nzzz\nZZ\nYY\naaa\nXX"
       subject.to_a.should == [
-          [:tSTRING_BEG,     '<<XX',        [1,  1]],
-          [:tSTRING_CONTENT, 'xxx ',        [2,  1]],
-          [:tSTRING_DBEG,    '#{',          [2,  5]],
-          [:tSTRING_BEG,     '<<YY',        [2,  8]],
-          [:tSTRING_CONTENT, 'y ',          [3,  1]],
-          [:tSTRING_DBEG,    '#{',          [3,  3]],
-          [:tSTRING_BEG,     '<<ZZ',        [3,  6]],
-          [:tSTRING_CONTENT, "zzz\n",       [4,  1]],
-          [:tSTRING_END,     "ZZ\n",        [5,  1]],
-          [:kPLUS,           '+',           [3, 11]],
-          [:tSTRING_BEG,     "'",           [3, 13]],
-          [:tSTRING_CONTENT, 'iii',         [3, 14]],
-          [:tSTRING_END,     "'",           [3, 17]],
-          [:tSTRING_DEND,    '}',           [3, 19]],
-          [:tSTRING_CONTENT, " y\n",        [3, 20]],
-          [:tSTRING_END,     "YY\n",        [6,  1]],
-          [:tSTRING_DEND,    '}',           [2, 13]],
-          [:tSTRING_CONTENT, " www\naaa\n", [2, 14]],
-          [:tSTRING_END,     'XX',          [8,  1]],
-          [:kNL,             "\n",          [1,  5]],
+          [:tSTRING_BEG,     '<<XX',   [1,  1]],
+          [:tSTRING_CONTENT, 'xxx ',   [2,  1]],
+          [:tSTRING_DBEG,    '#{',     [2,  5]],
+          [:tSTRING_BEG,     '<<YY',   [2,  8]],
+          [:tSTRING_CONTENT, 'y ',     [3,  1]],
+          [:tSTRING_DBEG,    '#{',     [3,  3]],
+          [:tSTRING_BEG,     '<<ZZ',   [3,  6]],
+          [:tSTRING_CONTENT, "zzz\n",  [4,  1]],
+          [:tSTRING_END,     "ZZ\n",   [5,  1]],
+          [:kPLUS,           '+',      [3, 11]],
+          [:tSTRING_BEG,     "'",      [3, 13]],
+          [:tSTRING_CONTENT, 'iii',    [3, 14]],
+          [:tSTRING_END,     "'",      [3, 17]],
+          [:tSTRING_DEND,    '}',      [3, 19]],
+          [:tSTRING_CONTENT, " y\n",   [3, 20]],
+          [:tSTRING_END,     "YY\n",   [6,  1]],
+          [:tSTRING_DEND,    '}',      [2, 13]],
+          [:tSTRING_CONTENT, " www\n", [2, 14]],
+          [:tSTRING_CONTENT, "aaa\n",  [7,  1]],
+          [:tSTRING_END,     'XX',     [8,  1]],
+          [:kNL,             "\n",     [1,  5]],
           [false, false]
       ]
     end
@@ -368,31 +392,23 @@ RSpec.describe Mint::Lexer do
   describe 'Numeric' do
 
     it 'throws trailing underscore error in integers' do
-      expect do
-        subject.data = '11_'
-        subject.to_a
-      end.to raise_error SyntaxError, "trailing `_' in number"
+      subject.data = '11_'
+      expect { subject.to_a }.to raise_error SyntaxError, "trailing `_' in number"
     end
 
     it 'throws trailing underscore error in integer part of a float' do
-      expect do
-        subject.data = '1_.11'
-        subject.to_a
-      end.to raise_error SyntaxError, "trailing `_' in number"
+      subject.data = '1_.11'
+      expect { subject.to_a }.to raise_error SyntaxError, "trailing `_' in number"
     end
 
     it 'throws trailing underscore error in fractional part of a float' do
-      expect do
-        subject.data = '1.11_'
-        subject.to_a
-      end.to raise_error SyntaxError, "trailing `_' in number"
+      subject.data = '1.11_'
+      expect { subject.to_a }.to raise_error SyntaxError, "trailing `_' in number"
     end
 
     it 'throws trailing underscore error in exponential part of a float' do
-      expect do
-        subject.data = '1.11e1_'
-        subject.to_a
-      end.to raise_error SyntaxError, "trailing `_' in number"
+      subject.data = '1.11e1_'
+      expect { subject.to_a }.to raise_error SyntaxError, "trailing `_' in number"
     end
 
   end

@@ -128,7 +128,11 @@ module Mint
       end
 
       def gen_token(type, tok = current_token, location: self.location, **options)
-        @tokens << ( options.empty? ? [type, tok, location] : [type, tok, location, options] )
+        @tokens << ( options.empty? ? [type, tok, location] : [type, tok, location, **options] )
+      end
+
+      def gen_char_token(tok = current_token, location: self.location)
+        gen_token(:tCHAR, tok, location: location)
       end
 
       def gen_heredoc_token(indent, delimiter, id)
@@ -174,7 +178,9 @@ module Mint
           when :imaginary then :tIMAGINARY
           else num_type
         end
-        gen_token(num_type, current_token.lstrip, num_base: num_base)
+        tok = current_token
+        tok2 = tok.lstrip
+        gen_token(num_type, tok2, location: location(@ts + tok.length - tok2.length), num_base: num_base)
       end
 
       def gen_op_asgn_token(tok = current_token(ote: -1))
@@ -184,11 +190,9 @@ module Mint
 
       def gen_string_content_token(ote = -token_length)
         lit = @literals.last
-        # add content to buffer
-        lit.content_buffer << current_token(ts: lit.content_start, ote: ote)
-        return false if lit.words? && lit.content_buffer.length == 0
-        gen_token(:tSTRING_CONTENT, lit.content_buffer, location: location(lit.content_start))
-        lit.clear_buffer
+        tok = current_token(ts: lit.content_start, ote: ote)
+        return false if tok.length == 0
+        gen_token(:tSTRING_CONTENT, tok, location: location(lit.content_start))
         true
       end
 

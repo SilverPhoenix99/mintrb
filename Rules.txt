@@ -1,0 +1,20 @@
+a : b | a b       => a : b | b a  => a : b+
+a : _ | a b       => a : _ | b a  => a : b*
+
+a : b | a c       => a : b | b d  => a : b d?  => a : b (c+)?  => a : b c*
+                     d : c | c d     d : c+
+
+a : c | a b c     => a : c (b c)*
+
+a : ( b | a c )?  => a : b? c*
+a : b ( c | a )   => a : b+ c
+a : ( b c )* b    => a : b ( c b )*
+
+-----------------------------------------
+-- Order precedence parsing
+-----------------------------------------
+
+non   : next | next op next
+left  : next | left op next   =>  left  : next (op next)+
+right : next | next op right  =>  right : next (op right)?
+unary : op next

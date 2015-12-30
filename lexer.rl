@@ -1265,7 +1265,7 @@ HEREDOC_CONTENT := |*
 
     if @line_jump
       # content in @te..@line_jump isn't included
-      lit.content_buffer << current_token(ts: lit.content_start)
+      gen_string_content_token(0)
       lit.content_start = @line_jump
       fexec @line_jump;
       @line_jump = nil
@@ -1323,8 +1323,9 @@ STRING_DELIMITER := |*
   ( any - alnum ) ':' [^:] => {
     fexec @te -= 1; # hold the last char [^:]
 
-    is_labeled = fcalled_by?(EXPR_ARG, EXPR_CMDARG, EXPR_LABELARG) || (
-                 !@in_cmd && fcalled_by?(EXPR_BEG, EXPR_ENDFN))
+    is_labeled = !@literals.last.regexp? && (
+      fcalled_by?(EXPR_ARG, EXPR_CMDARG, EXPR_LABELARG) ||
+         (!@in_cmd && fcalled_by?(EXPR_BEG, EXPR_ENDFN)))
 
     tok = if is_labeled
       current_token(ote: -1)
@@ -1334,15 +1335,23 @@ STRING_DELIMITER := |*
     end
 
     unless @literals.last.delimiter?(tok)
+      # not the delimiter
       fexec @ts;
       fcall *(@literals.last.words? ? WORD_CONTENT : STRING_CONTENT);
     end
 
     # found delimiter => end string
 
-    gen_string_content_token
-    gen_string_end_token
     pop_fcall
+    gen_string_content_token
+
+    regexp_delim = nil
+    if @literals.last.regexp?
+      regexp_delim = @ts
+      fgoto REGEXP_END;
+    end
+
+    gen_string_end_token
     fnext *(is_labeled ? EXPR_BEG : EXPR_END);
     fbreak;
   };
@@ -1355,10 +1364,17 @@ STRING_DELIMITER := |*
 
     # found delimiter => end string
 
+    pop_fcall
     gen_string_content_token
+
+    regexp_delim, regex_options = nil
+    if @literals.last.regexp?
+      regexp_delim, regex_options = @ts, []
+      fgoto REGEXP_END;
+    end
+
     gen_string_end_token
     fnext EXPR_END;
-    pop_fcall
     fbreak;
   };
 
@@ -1386,7 +1402,7 @@ WORD_CONTENT := |*
   #  if @line_jump
   #    # content in @te..@line_jump isn't included
   #    lit = @literals.last
-  #    lit.content_buffer << current_token(ts: lit.content_start)
+  #    gen_string_content_token(0)
   #    lit.content_start = @line_jump
   #    fexec @line_jump;
   #    @line_jump = nil
@@ -1437,7 +1453,7 @@ STRING_CONTENT := |*
     if @line_jump
       # content in @te..@line_jump isn't included
       lit = @literals.last
-      lit.content_buffer << current_token(ts: lit.content_start)
+      gen_string_content_token
       lit.content_start = @line_jump
       fexec @line_jump;
       @line_jump = nil
@@ -1447,6 +1463,31 @@ STRING_CONTENT := |*
   };
 
   any => { fret; };
+*|;
+
+
+REGEXP_END := |*
+
+  'm' => { regex_options << :multi_line };
+  'i' => { regex_options << :ignore_case };
+  'x' => { regex_options << :extend };
+  'o' => { regex_options << :once };
+
+  ( alpha - [mixo] )+ => {
+    tok = current_token
+    raise SyntaxError, "unknown regexp option#{tok.length == 1 ? '' : 's'} - #{tok}"
+  };
+
+  any - alpha => {
+    fexec @te -= 1;
+    gen_token(:tREGEXP_END,
+              current_token(ts: regexp_delim),
+              location: location(regexp_delim),
+              options: regex_options.uniq.sort);
+    fnext EXPR_END;
+    fbreak;
+  };
+
 *|;
 
 
@@ -1475,13 +1516,7 @@ CHAR := |*
   '\\x'      => { raise SyntaxError, 'invalid hex escape' };
   '\\' [cCM] => { raise SyntaxError, 'Invalid escape character syntax' };
 
-  '\\' any => {
-    gen_char_token(current_token(ots: 1))
-    fnext EXPR_END;
-    fbreak;
-  };
-
-  any => {
+  '\\'? any => {
     gen_char_token
     fnext EXPR_END;
     fbreak;
