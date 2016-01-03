@@ -1,0 +1,12 @@
+%%{ #%
+
+machine Lex;
+include "lexer.rbrl";
+
+}%%
+#%
+module Mint
+  class Lexer
+    %%{ write data; }%%
+  end
+end

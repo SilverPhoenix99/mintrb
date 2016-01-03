@@ -1,0 +1,34 @@
+%%{
+#%
+
+machine Lex;
+
+EXPR_MID := |*
+
+  '::' => Keyword;
+
+  ( '**' | '*' ) %TokEnd [^=] => Keyword;
+
+  '&' %TokEnd [^&.=] => Keyword;
+
+  heredoc_ident => Heredoc;
+
+  e_beg_sign;
+
+  '/' => StringStart;
+
+  percent_string => StringStart;
+
+  '(' => Keyword;
+
+  '[' => Keyword;
+
+  reserved => Keyword;
+  any_ident % { next_state = @in_cmd ? EXPR_CMDARG : EXPR_ARG } => Keyword;
+
+  any => { fhold; fcall COMMON_EXPR; };
+
+*|;
+
+}%%
+#%

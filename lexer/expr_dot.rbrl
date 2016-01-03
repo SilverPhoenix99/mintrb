@@ -1,0 +1,26 @@
+%%{
+#%
+
+machine Lex;
+
+EXPR_DOT := |*
+
+  nl (ws* nl)* => { fcall BOL; };
+
+  operator_expr => Keyword;
+
+  '`' % { next_state = @in_cmd ? EXPR_CMDARG : EXPR_ARG } => Keyword;
+
+  (
+      any_ident
+    | reserved_ident % { token_type = :tIDENTIFIER }
+    | reserved_const % { token_type = :tCONSTANT }
+    | reserved_fid   % { token_type = :tFID }
+  ) % { next_state = @in_cmd ? EXPR_CMDARG : EXPR_ARG } => Keyword;
+
+  any => { fhold; fcall COMMON_EXPR; };
+
+*|;
+
+}%%
+#%

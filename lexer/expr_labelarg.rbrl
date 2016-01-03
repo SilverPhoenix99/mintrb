@@ -1,0 +1,51 @@
+%%{
+#%
+
+machine Lex;
+
+# Equivalent to EXPR_ARG|EXPR_LABELED in MRI.
+EXPR_LABELARG := |*
+
+  nl (ws* nl)* => {
+    if @in_kwarg
+      @in_cmd = true
+      gen_token(:kNL, token: "\n")
+      push_fcall
+      fnext BOL;
+      fbreak;
+    end
+
+    fcall BOL;
+  };
+
+  '::' => Keyword;
+
+  ( '**' | '*' ) %TokEnd [^=] => Keyword;
+
+  '&' %TokEnd [^&.=] => Keyword;
+
+  heredoc_ident => Heredoc;
+
+  e_beg_sign;
+
+  '/' => StringStart;
+
+  percent_string => StringStart;
+
+  # exclude '?\\\n': it resolves to '\n' as if '?\\n'
+  '?' %TokEnd space => Keyword;
+
+  '(' => Keyword;
+
+  '[' => Keyword;
+
+  label % { token_type = :tLABEL; next_state = EXPR_LABELARG } => Keyword;
+  reserved => Keyword;
+  any_ident % { next_state = @in_cmd ? EXPR_CMDARG : EXPR_ARG } => Keyword;
+
+  any => { fhold; fcall COMMON_EXPR; };
+
+*|;
+
+}%%
+#%

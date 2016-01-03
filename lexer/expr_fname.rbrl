@@ -1,0 +1,30 @@
+%%{
+#%
+
+machine Lex;
+
+EXPR_FNAME := |*
+
+  nl (ws* nl)* => { fcall BOL; };
+
+  operator_expr => Keyword;
+
+  '`' % { next_state = EXPR_ENDFN } => Keyword;
+
+  heredoc_ident => Heredoc;
+
+  back_ref | nth_ref => {
+    gen_token(:tGVAR)
+    fnext EXPR_END;
+    fbreak;
+  };
+
+  reserved => Keyword;
+  any_ident % { next_state = EXPR_ENDFN } => Keyword;
+
+  any => { fhold; fcall COMMON_EXPR; };
+
+*|;
+
+}%%
+#%

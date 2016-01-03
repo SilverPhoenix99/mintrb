@@ -1,0 +1,38 @@
+%%{
+#%
+
+machine Lex;
+
+# After keyword 'class'
+# '<<' is left shift (singleton class) and not heredoc
+EXPR_CLASS := |*
+
+  nl (ws* nl)* => { fcall BOL; };
+
+  '::' => Keyword;
+
+  ( '**' | '*' ) %TokEnd [^=] => Keyword;
+
+  ( '<=>' | '<=' | '<' | '<<' %TokEnd [^=] ) % { @in_cmd = true } => Keyword;
+
+  '&' %TokEnd [^&.=] => Keyword;
+
+  e_beg_sign;
+
+  '/' => StringStart;
+
+  percent_string => StringStart;
+
+  '(' => Keyword;
+
+  '[' => Keyword;
+
+  reserved => Keyword;
+  any_ident % { next_state = @in_cmd ? EXPR_CMDARG : EXPR_ARG } => Keyword;
+
+  any => { fhold; fcall COMMON_EXPR; };
+
+*|;
+
+}%%
+#%

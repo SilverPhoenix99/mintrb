@@ -1,0 +1,578 @@
+
+%%{ #%
+
+# Character classes are in lowercase. e.g.: eof
+# Machines/scanners are in uppercase. e.g.: EXPR_BEG
+# Actions are in CamelCase. e.g.: DoEof
+
+# The first state is BOL (beginning of line)
+
+machine Lex;
+access @;
+variable p @p;
+getkey peek; # not the most efficient
+
+# ------------------------------------------------------------------------------
+#
+# Character Classes
+#
+
+action NewLine {
+  # NewLine
+  if @line_jump > @p
+    fexec @line_jump;
+  end
+}
+
+action TokStart { lts = @p }
+action TokEnd   { lte = @p }
+
+c_eof   = 0 | 0x4 | 0x1A; # '\0' | ^D | ^Z
+nl      = '\n' @NewLine %TokStart;
+ws      = ( (space - nl) | ('\\' nl) ) %TokStart;
+nl_zlen = nl | zlen;
+nl_eof  = nl | c_eof;
+nl_ws   = nl | ws;
+unicode = ^ascii;
+
+ident_start = lower | '_' | unicode;
+ident_char  = alnum | '_' | unicode;
+
+string_term = [QqWwIixrs];
+
+
+#-------------------------------------------------------------------------------
+# Actions
+
+action EofBreak { fbreak; }
+
+action Keyword {
+  # Keyword
+  keyword_token(token_type, lts, lte, next_state)
+  fbreak;
+}
+
+action Number {
+  gen_number_token(num_type, num_base, num_flags || [], ts: lts >= 0 ? lts : @ts)
+  if fcalled_by?(COMMON_EXPR, reject: false)
+    pop_fcall
+  end
+  fnext EXPR_END;
+  fbreak;
+}
+
+action StringStart {
+  # StringStart
+  if lte >= 0
+    fexec @te = lte;
+  end
+  gen_literal_token(lts >= 0 ? lts : @ts)
+  push_fcall unless @cs == COMMON_EXPR # this is so that strings can identify who called them if needed
+  fnext STRING_DELIMITER;
+  fbreak;
+}
+
+# ------------------------------------------------------------------------------
+#
+# Comments
+#
+
+# TODO: magic comments
+
+line_comment = '#' ^nl_eof*;
+
+
+# ------------------------------------------------------------------------------
+#
+# Numerics
+#
+
+# TODO: error => numeric literal without digits
+
+action RacSuf { (num_flags ||= []) << :rational }
+action CmxSuf { (num_flags ||= []) << :imaginary }
+action IntNum { num_type = :tINTEGER }
+action FloNum { num_type = :tFLOAT }
+action TrailError { raise SyntaxError, "trailing `_' in number" }
+
+bdigit = [01];
+odigit = [0-7];
+
+# digits with leading `_' like in 1_000_00
+ubdigits = bdigit ( '_'? bdigit )* ('_' %TrailError)? ;
+uodigits = odigit ( '_'? odigit )* ('_' %TrailError)? ;
+uddigits =  digit ( '_'?  digit )* ('_' %TrailError)? ;
+uxdigits = xdigit ( '_'? xdigit )* ('_' %TrailError)? ;
+
+bin_number  =   '0' [bB]   ubdigits % { num_base =  2 };
+oct_number  =   '0' [oO_]? uodigits % { num_base =  8 };
+dec_number  =   '0' [dD]   uddigits % { num_base = 10 };
+hex_number  =   '0' [xX]   uxdigits % { num_base = 16 };
+int_number  = ( '0' | [1-9] ( '_'? digit )* ) ('_' %TrailError)? % { num_base = 10 };
+
+sign = [+\-];
+
+real_frac = '.' uddigits;
+real_exp  = [eE] sign? uddigits;
+
+
+real_number =
+  int_number
+  (
+      real_exp
+    | real_frac ( real_exp | ('r' %RacSuf)? )?
+  ) %FloNum
+;
+
+rationable_number = (
+    bin_number
+  | oct_number
+  | dec_number
+  | hex_number
+  | int_number
+) %IntNum ('r' %RacSuf)? ;
+
+number = ( rationable_number | real_number ) ('i' %CmxSuf)? ;
+
+
+# ------------------------------------------------------------------------------
+#
+# Sign +/-
+#
+
+
+action UnaryOp {
+  lts = @ts if lts < 0
+  fexec @te = lts + 1;
+  gen_token(type, ts: lts)
+  fnext EXPR_BEG;
+  fbreak;
+}
+
+e_beg_sign =
+    '+' %TokStart number %Number
+  | (
+      '+' [^=0-9]  % { type = :kUPLUS }
+    | '-' [^=>0-9] % { type = :kUMINUS }
+    | '-' digit    % { type = :kUMINUS_NUM }
+  ) %UnaryOp
+;
+
+e_arg_sign =
+  ws+ (
+      '+' %TokStart number %Number
+    | (
+        '+' ^(space | [=0-9])  % { type = :kUPLUS }
+      | '-' ^(space | [=>0-9]) % { type = :kUMINUS }
+      | '-' digit % { type = :kUMINUS_NUM }
+    ) %UnaryOp
+  )
+;
+
+
+# ------------------------------------------------------------------------------
+#
+# Percent strings
+#
+
+# MRI accepts a unicode code byte as string initiator
+# but then gives an error when trying to close,
+# or if the unicode is invalid.
+# In here, unicode is explicitly disabled.
+percent_string = '%' string_term? (
+    c_eof @{ raise SyntaxError, 'unknown type of %string' }
+  | (ascii - alnum) @lerr{ raise SyntaxError, 'unknown type of %string' }
+);
+
+
+# ------------------------------------------------------------------------------
+#
+# Heredocs
+#
+
+action Heredoc {
+  lit = gen_heredoc_token(lts >= 0 ? lts : @ts)
+  fexec lit.content_start = next_bol!;
+  push_fcall
+  fnext HEREDOC_DELIMITER;
+  fbreak;
+}
+
+action UnterminatedHeredoc { raise SyntaxError, 'unterminated here document identifier' }
+
+# This is different from MRI: MRI accepts \n in identifiers,
+# but then it can't find the identifier anywhere after. (MRI bug)
+# In this case, \n isn't accepted in identifiers.
+# There is no interpolation inside the identifier.
+# Heredocs of type <<' have no interpolation in content.
+heredoc_ident = '<<' [~\-]? (
+    ident_char+
+  | '"' ^('"' | nl_eof)* '"' @lerr(UnterminatedHeredoc)
+  | "'" ^("'" | nl_eof)* "'" @lerr(UnterminatedHeredoc)
+  | '`' ^('`' | nl_eof)* '`' @lerr(UnterminatedHeredoc)
+);
+
+
+# ------------------------------------------------------------------------------
+#
+# Identifiers
+#
+
+reserved_ident = 'alias'
+               | 'and'
+               | 'begin'
+               | 'break'
+               | 'case'
+               | 'class'
+               | 'def'
+               | 'do'
+               | 'else'
+               | 'elsif'
+               | 'end'
+               | 'ensure'
+               | 'false'
+               | 'for'
+               | 'if'
+               | 'in'
+               | 'module'
+               | 'next'
+               | 'nil'
+               | 'not'
+               | 'or'
+               | 'redo'
+               | 'rescue'
+               | 'retry'
+               | 'return'
+               | 'self'
+               | 'super'
+               | 'then'
+               | 'true'
+               | 'undef'
+               | 'unless'
+               | 'until'
+               | 'when'
+               | 'while'
+               | 'yield'
+               | '__ENCODING__'
+               | '__FILE__'
+               | '__LINE__'
+;
+
+reserved_const = 'BEGIN' | 'END';
+reserved_fid   = 'defined?' %TokEnd [^=];
+
+reserved = reserved_ident | reserved_const | reserved_fid;
+
+identifier  = ( (ident_start ident_char*) - reserved_ident ) % { token_type = :tIDENTIFIER };
+constant    = ( (upper       ident_char*) - reserved_const ) % { token_type = :tCONSTANT };
+fid         = ( ((ident_start | upper) ident_char*) - reserved_fid ) [?!] %TokEnd [^=] % { token_type = :tFID };
+setter_name = ( ident_start | upper ) ident_char* '=' %TokEnd ( [^~=>] | '=>' ) % { token_type = :tIDENTIFIER };
+
+any_ident   = identifier | constant | fid;
+
+# don't put token_type = :tLABEL, because it may be refused if @in_cmd == true
+label = (
+    ( identifier | constant | reserved_ident | reserved_const ) ':'
+  | (fid | reserved_fid) & (any+ ':')
+) %TokEnd [^:];
+
+bref_char = [&+``''];
+back_ref  = '$' bref_char % { token_type = :tBACK_REF };
+
+# TODO: if it doesn't fit a Fixnum, give warning.
+#       See parse_numvar.
+#       Don't give warning in EXPR_FNAME.
+nth_ref  = '$' [1-9] digit* % { token_type = :tNTH_REF };
+
+gvar_char = [~*$?!@/\\;,.=:<>""];
+
+invalid_gvar = ^(
+    ident_char
+  | gvar_char
+  | bref_char
+  | space
+  | c_eof
+  | [1-9\-]
+);
+
+gvar = '$' (
+    '-' ident_char
+  | ( ident_char - [1-9] ) ident_char*
+  | gvar_char
+  | (space | c_eof) @ { raise SyntaxError, "`$' without identifiers is not allowed as a global variable name" }
+  #| invalid_gvar @ { raise SyntaxError, "`#{current_token}' is not allowed as a global variable name" }
+) >err { raise SyntaxError, "`#{current_token}' is not allowed as a global variable name" } % { token_type = :tGVAR };
+
+test = gvar | nth_ref | back_ref;
+
+var = (
+    (ident_char - digit) ident_char*
+  | ( digit | ^ident_char ) % {
+      tok = current_token
+      type_str = token_type == :tIVAR ? 'n instance' : ' class'
+      raise SyntaxError, "`#{tok}' is not allowed as a#{type_str} variable name"
+    }
+
+  | ( c_eof | space ) % {
+      tok = current_token(ote: -1)
+      type_str = token_type == :tIVAR ? 'n instance' : ' class'
+      raise SyntaxError, "`#{tok}' without identifiers is not allowed as a#{type_str} variable name"
+    }
+);
+
+ivar = '@' % { token_type = :tIVAR } var;
+cvar = '@@' % { token_type = :tCVAR } var;
+
+any_var =
+    back_ref
+  | nth_ref
+  | gvar
+  | cvar
+  | ivar
+;
+
+op_asgn = '&&='
+        | '&='
+        | '**='
+        | '*='
+        | '||='
+        | '|='
+        | '+='
+        | '-='
+        | '/='
+        | '^='
+        | '%='
+        | '<<='
+        | '>>='
+;
+
+# Expressions common to EXPR_DOT and EXPR_FNAME
+operator_expr = (
+    # same op as COMMON_EXPR
+    '!=' | '!~' | '!'
+  | '===' | '==' | '=~' | '=>' | '='
+  | '<=>' | '<=' | '<'
+  | '>=' | '>'
+  | '~'
+
+    # similar to COMMON_EXPR
+  | '**' %TokEnd [^=]   % { token_type = OPERATORS }
+  | '*'  %TokEnd [^=]   % { token_type = OPERATORS }
+  | '+'  %TokEnd [^=]   % { token_type = OPERATORS }
+  | '-'  %TokEnd [^=]   % { token_type = OPERATORS }
+  | '&'  %TokEnd [^&.=] % { token_type = OPERATORS }
+  | '<<' %TokEnd [^=]
+  | '>>' %TokEnd [^=]
+  | '|'  %TokEnd [^|=]
+  | '/'  %TokEnd [^=]
+  | '^'  %TokEnd [^=]
+  | '%'  %TokEnd [^=]
+  | '[' % { token_type = OPERATORS }
+
+    # unique to operator_expr
+  | '+@' | '-@' | '!@' | '~@'
+  | '[]' | '[]='
+) % { next_state = EXPR_ARG };
+
+
+#
+# Machines #####################################################################
+#
+
+
+#
+# Main/Entry - Beginning Of Line -----------------------------------------------
+# Callable state (i.e., it must only be executed through a fcall)
+#
+BOL := |*
+  c_eof => EofBreak;
+  nl+; # no op
+
+  '=begin' ( ( space - nl ) ^nl* )? nl => {
+    #block_comment_start = @ts
+    fhold;
+    # BLOCK_COMMENT does fret. it must return to BOL.
+    fcall BLOCK_COMMENT;
+  };
+
+  '__END__' nl_eof => {
+    fexec pe;
+    @__end__seen = true;
+    # no fret or pop_fcall: it's EOF
+    fbreak;
+  };
+
+  any => {
+    fhold;
+    # Returns to caller (BOL ends at beginning of a line).
+    # \n sensitive states must take care of it,
+    # or they must setup the return state (fcall or push_fcall).
+    fret;
+  };
+*|;
+
+
+#
+# Expressions ------------------------------------------------------------------
+# Expressions are not callable.
+# They are transitioned to through fnext or fgoto.
+
+
+include "expr_arg.rbrl";
+include "expr_beg.rbrl";
+include "expr_class.rbrl";
+include "expr_cmdarg.rbrl";
+include "expr_dot.rbrl";
+include "expr_end.rbrl";
+include "expr_endarg.rbrl";
+include "expr_endfn.rbrl";
+include "expr_fname.rbrl";
+include "expr_labelarg.rbrl";
+include "expr_mid.rbrl";
+
+
+# Strings: <<Heredocs, 'strings' and ?chars
+include "string.rbrl";
+
+
+#
+# Shared expressions -----------------------------------------------------------
+# Expressions that can exist anywhere
+
+
+COMMON_EXPR := |*
+
+  c_eof => EofBreak;
+
+  # ignore and continue parsing in corresponding expression state
+  ws+ => { fret; };
+
+  line_comment; # no op
+
+  nl (ws* nl)* => {
+    @in_cmd = true
+    gen_token(:kNL, token: "\n")
+    pop_fcall
+    push_fcall EXPR_BEG
+    fnext BOL;
+    fbreak;
+  };
+
+  # ---
+
+      # same op as operator_expr
+      '!=' | '!~' | '!'
+    | '===' | '==' | '=~' | '=>' | '='
+    | '<=>' | '<=' | '<'
+    | '>=' | '>'
+    | '~'
+
+      # similar to operator_expr
+    | ( '**' | '*' | '+' | '-' | '&' %TokEnd [^.] ) % { token_type = OPERATORS }
+    | '<<' | '>>' | '|' | '/' | '^' | '%'
+
+      # unique to COMMON_EXPR
+    | '...' | '..' | ',' | '&&' | '||'
+    | op_asgn % { token_type = OPERATORS }
+  => Keyword;
+
+  # ---
+
+  nl ws* '.' %TokEnd [^.0-9] % { next_state = EXPR_DOT } => Keyword;
+
+  nl ws* '&.' % { next_state = EXPR_DOT } => Keyword;
+
+  ( '.' | '&.' ) % { next_state = EXPR_DOT } => Keyword;
+
+  ';' % { @in_cmd = true } => Keyword;
+
+  '::' % { token_type = OPERATORS; next_state = EXPR_DOT } => Keyword;
+
+  ':' %TokEnd ( space | '#' ) => Keyword;
+
+  '->' % { next_state = EXPR_ENDFN } => Keyword;
+
+  '?' %TokEnd (
+
+      (alnum | '_') ident_char
+
+      # exclude '?\\\n': it resolves to '\n' as if '?\\n'
+    | space % {
+        i = " \n\f\r\t\v".index(current_token[-1])
+        c = 'snfrtv'[i]
+        warn "invalid character syntax; use ?\\#{c}"
+      }
+
+    | c_eof % { raise SyntaxError, "incomplete character syntax" }
+
+  ) => Keyword;
+
+  '(' % { token_type = OPERATORS } => Keyword;
+
+  ')' % { next_state = EXPR_ENDFN } => Keyword;
+
+  '[' % { token_type = OPERATORS } => Keyword;
+
+  ']' % { next_state = EXPR_ENDARG } => Keyword;
+
+  '{' % {
+    if @lpar_beg > 0 && @lpar_beg == @paren_nest
+      @lpar_beg = 0
+      @paren_nest -= 1
+      token_type = :kLAMBEG
+    end
+  } => Keyword;
+
+  '}' => Keyword;
+
+  [''""``] => StringStart;
+
+  '.' digit => { raise SyntaxError, 'no .<digit> floating literal anymore; put 0 before dot' };
+
+  ':' [''""] => StringStart;
+
+  ':' => {
+    gen_token(:tSYMBEG)
+    pop_fcall
+    fnext EXPR_FNAME;
+    fbreak;
+  };
+
+  number => Number;
+
+  any_var % { next_state = EXPR_END } => Keyword;
+
+  '?' => {
+    pop_fcall
+    fgoto CHAR;
+  };
+
+  ^ident_char => { raise SyntaxError, "Invalid char `#{current_token}' in expression at #@ts"; };
+
+  any => { raise "Don't know what to do with `#{current_token}' at #@ts" };
+
+*|;
+
+
+#
+# Block comments ---------------------------------------------------------------
+# =begin
+#  ...
+# =end
+#
+
+BLOCK_COMMENT := |*
+  c_eof => { raise SyntaxError, 'embedded document meets end of file' };
+
+  nl '=end' ( ws ^nl_eof* )? nl_eof => {
+    #gen_token(:tCOMMENT, current_token(ts: block_comment_start));
+    fret;
+  };
+
+  any; # append
+*|;
+
+# ##############################################################################
+
+}%%
+#%

@@ -1,0 +1,47 @@
+%%{
+#%
+
+machine Lex;
+
+EXPR_BEG := |*
+
+  nl (ws* nl)* => { fcall BOL; };
+
+  '::' => Keyword;
+
+  ( '**' | '*' ) %TokEnd [^=] => Keyword;
+
+  '&' %TokEnd [^&.=] => Keyword;
+
+  heredoc_ident => Heredoc;
+
+  e_beg_sign;
+
+  '/' => StringStart;
+
+  percent_string => StringStart;
+
+  '(' => Keyword;
+
+  '[' => Keyword;
+
+  label % {
+    if @in_cmd
+      # label not allowed
+      lte -= 1 # remove trailing ':'
+      next_state = EXPR_CMDARG if token_type != KEYWORDS
+    else
+      token_type = :tLABEL
+      next_state = EXPR_LABELARG
+    end
+  } => Keyword;
+
+  reserved => Keyword;
+  any_ident % { next_state = @in_cmd ? EXPR_CMDARG : EXPR_ARG } => Keyword;
+
+  any => { fhold; fcall COMMON_EXPR; };
+
+*|;
+
+}%%
+#%

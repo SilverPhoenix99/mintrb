@@ -1,0 +1,26 @@
+%%{ #%
+
+machine Lex;
+include "lexer.rbrl";
+
+}%%
+#%
+require_relative 'lexer_data'
+
+module Mint
+  class Lexer
+    private def advance
+        eof = pe = @data.length + 1
+
+        current_literal = @literals.last
+
+        # variables for keyword_token()
+        token_type, lts, lte, next_state = KEYWORDS, -1, -1, EXPR_BEG
+
+        %%{ write exec; }%%
+
+        nil
+      end
+
+  end
+end

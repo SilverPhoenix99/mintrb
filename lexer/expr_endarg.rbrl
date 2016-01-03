@@ -1,0 +1,31 @@
+%%{
+#%
+
+machine Lex;
+
+EXPR_ENDARG := |*
+
+  ':' %TokEnd [^:] => Keyword;
+
+  '?' => Keyword;
+
+  '{' % {
+    if @lpar_beg > 0 && @lpar_beg == @paren_nest
+      @lpar_beg = 0
+      @paren_nest -= 1
+      token_type = :kLAMBEG
+    else
+      @in_cmd = true
+      token_type = :kLBRACE_ARG
+    end
+  } => Keyword;
+
+  reserved => Keyword;
+  any_ident % { next_state = EXPR_END } => Keyword;
+
+  any => { fhold; fcall COMMON_EXPR; };
+
+*|;
+
+}%%
+#%
