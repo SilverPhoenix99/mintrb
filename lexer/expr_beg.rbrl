@@ -5,21 +5,13 @@ machine Lex;
 
 EXPR_BEG := |*
 
-  nl (ws* nl)* => { fcall BOL; };
+  empty_lines;
 
   '::' => Keyword;
 
   ( '**' | '*' ) %TokEnd [^=] => Keyword;
 
   '&' %TokEnd [^&.=] => Keyword;
-
-  heredoc_ident => Heredoc;
-
-  e_beg_sign;
-
-  '/' => StringStart;
-
-  percent_string => StringStart;
 
   '(' => Keyword;
 
@@ -37,7 +29,16 @@ EXPR_BEG := |*
   } => Keyword;
 
   reserved => Keyword;
+
   any_ident % { next_state = @in_cmd ? EXPR_CMDARG : EXPR_ARG } => Keyword;
+
+  e_beg_sign;
+
+  heredoc_ident => Heredoc;
+
+  '/' => StringStart;
+
+  percent_string => StringStart;
 
   any => { fhold; fcall COMMON_EXPR; };
 

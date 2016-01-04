@@ -38,7 +38,9 @@ EXPR_ARG := |*
   } => Keyword;
 
   label % { token_type = :tLABEL; next_state = EXPR_LABELARG } => Keyword;
+
   reserved => Keyword;
+
   any_ident % { next_state = @in_cmd ? EXPR_CMDARG : EXPR_ARG } => Keyword;
 
   any => { fhold; fcall COMMON_EXPR; };

@@ -45,23 +45,27 @@ module Mint
 
     def reset
       @p     = 0
-      @cs    = BOL
+      @cs    = BOF
       @ts    = nil
       @te    = nil
       @act   = 0
-      @stack = [EXPR_BEG]
-      @top   = 1
+      @stack = []
+      @top   = 0
 
       @tokens      = []
       @__end__seen = false
       @literals    = []
-      @line_jump   = -1
+      @line_jump   = 0
       @in_cmd      = false
       @paren_nest  = 0
       @cond        = 0
       @cmdarg      = 0
       @lpar_beg    = 0
       @in_kwarg    = false
+
+      if (i = @data.index(/[\0\x04\x1a]/))
+        @data = @data[0, i]
+      end
 
       @lines       = @data.each_char
                          .each_with_index

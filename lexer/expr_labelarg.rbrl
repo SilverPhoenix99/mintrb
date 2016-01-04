@@ -6,16 +6,13 @@ machine Lex;
 # Equivalent to EXPR_ARG|EXPR_LABELED in MRI.
 EXPR_LABELARG := |*
 
-  nl (ws* nl)* => {
+  empty_lines => {
     if @in_kwarg
       @in_cmd = true
       gen_token(:kNL, token: "\n")
-      push_fcall
-      fnext BOL;
+      fnext EXPR_BEG;
       fbreak;
     end
-
-    fcall BOL;
   };
 
   '::' => Keyword;
@@ -40,7 +37,9 @@ EXPR_LABELARG := |*
   '[' => Keyword;
 
   label % { token_type = :tLABEL; next_state = EXPR_LABELARG } => Keyword;
+
   reserved => Keyword;
+
   any_ident % { next_state = @in_cmd ? EXPR_CMDARG : EXPR_ARG } => Keyword;
 
   any => { fhold; fcall COMMON_EXPR; };

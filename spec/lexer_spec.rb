@@ -39,15 +39,53 @@ RSpec.describe Mint::Lexer do
       ]
     end
 
-    it 'block comments' do
-      subject.data = "@a\n=begin\n\#{blah}\n=end\n$:"
-      subject.to_a.should == [
-          [:tIVAR, ['@a', 1, 1]],
-          [:kNL,   ["\n", 1, 3]],
-          [:tGVAR, ['$:', 5, 1]],
-          [false, false]
-      ]
+    describe 'Embedded documents' do
+      it 'block comments' do
+        subject.data = "@a\n=begin\n\#{blah}\n=end\n$:"
+        subject.to_a.should == [
+            [:tIVAR, ['@a', 1, 1]],
+            [:kNL,   ["\n", 1, 3]],
+            [:tGVAR, ['$:', 5, 1]],
+            [false, false]
+        ]
+      end
+
+      it 'accepts empty embedded doc' do
+        subject.data = "=begin\n=end"
+        subject.to_a.should == [[false, false]]
+      end
+
+      it 'accepts embedded doc with trailing =begin' do
+        subject.data = "=begin dfsdffg\n=end"
+        subject.to_a.should == [[false, false]]
+      end
+
+      it 'accepts embedded doc with trailing =begin and content' do
+        subject.data = "=begin dfsdffg\nsdffdgkndhfkjgf\n=end"
+        subject.to_a.should == [[false, false]]
+      end
+
+      it 'accepts embedded doc with trailing =begin and nl after =end' do
+        subject.data = "=begin dfsdffg\nsdffdgkndhfkjgf\n=end\n"
+        subject.to_a.should == [[false, false]]
+      end
+
+      it 'accepts embedded doc with trailing =begin and =end' do
+        subject.data = "=begin dfsdffg\nsdffdgkndhfkjgf\n=end sddfgdfgfhg"
+        subject.to_a.should == [[false, false]]
+      end
+
+      it 'accepts embedded doc with trailing =begin and =end' do
+        subject.data = "=begin dfsdffg\nsdffdgkndhfkjgf\n=end sddfgdfgfhg\n "
+        subject.to_a.should == [[false, false]]
+      end
+
+      it "shouldn't find the =end of the embedded doc" do
+        subject.data = "=begin f\no\n=endo\n"
+        expect { subject.to_a }.to raise_error SyntaxError, 'embedded document meets end of file'
+      end
     end
+
   end
 
   describe 'Numeric' do

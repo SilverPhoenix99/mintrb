@@ -21,6 +21,7 @@ EXPR_ENDARG := |*
   } => Keyword;
 
   reserved => Keyword;
+
   any_ident % { next_state = EXPR_END } => Keyword;
 
   any => { fhold; fcall COMMON_EXPR; };

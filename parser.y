@@ -471,7 +471,7 @@ arg :
     }
   | arg kQMARK arg opt_nl kCOLON arg
     {
-      result = [:kIF, '?:', -1, -1], val[0], val[2], val[5]
+      result = val[1], val[0], val[2], val[5]
     }
   | primary
 

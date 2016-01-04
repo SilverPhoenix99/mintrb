@@ -5,7 +5,7 @@ machine Lex;
 
 EXPR_FNAME := |*
 
-  nl (ws* nl)* => { fcall BOL; };
+  empty_lines;
 
   operator_expr => Keyword;
 
@@ -20,6 +20,7 @@ EXPR_FNAME := |*
   };
 
   reserved => Keyword;
+
   any_ident % { next_state = EXPR_ENDFN } => Keyword;
 
   any => { fhold; fcall COMMON_EXPR; };

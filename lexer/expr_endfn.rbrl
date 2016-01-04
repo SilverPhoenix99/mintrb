@@ -32,6 +32,7 @@ EXPR_ENDFN := |*
   } => Keyword;
 
   reserved => Keyword;
+
   any_ident % { next_state = EXPR_ENDFN } => Keyword;
 
   any => { fhold; fcall COMMON_EXPR; };

@@ -5,7 +5,7 @@
 # Machines/scanners are in uppercase. e.g.: EXPR_BEG
 # Actions are in CamelCase. e.g.: DoEof
 
-# The first state is BOL (beginning of line)
+# The first state is BOF (beginning of file)
 
 machine Lex;
 access @;
@@ -27,10 +27,9 @@ action NewLine {
 action TokStart { lts = @p }
 action TokEnd   { lte = @p }
 
-c_eof   = 0 | 0x4 | 0x1A; # '\0' | ^D | ^Z
-nl      = '\n' @NewLine %TokStart;
+c_eof   = 0; # Lexer already excludes 0x4 and 0x1A (^D | ^Z)
+nl      = '\n' @NewLine;
 ws      = ( (space - nl) | ('\\' nl) ) %TokStart;
-nl_zlen = nl | zlen;
 nl_eof  = nl | c_eof;
 nl_ws   = nl | ws;
 unicode = ^ascii;
@@ -43,8 +42,6 @@ string_term = [QqWwIixrs];
 
 #-------------------------------------------------------------------------------
 # Actions
-
-action EofBreak { fbreak; }
 
 action Keyword {
   # Keyword
@@ -81,6 +78,21 @@ action StringStart {
 
 line_comment = '#' ^nl_eof*;
 
+action EmbDocEof { raise SyntaxError, 'embedded document meets end of file' }
+
+block_trail = (space - nl) ^nl*;
+
+block_comment =
+  '=begin' block_trail? nl
+  (
+    (any* nl)*
+    :>>
+    '=end' block_trail? nl_eof
+  ) @err(EmbDocEof)
+;
+
+# Expressions that must be at the beginning of a line.
+bol = block_comment | '__END__' nl_eof;
 
 # ------------------------------------------------------------------------------
 #
@@ -303,8 +315,6 @@ gvar = '$' (
   #| invalid_gvar @ { raise SyntaxError, "`#{current_token}' is not allowed as a global variable name" }
 ) >err { raise SyntaxError, "`#{current_token}' is not allowed as a global variable name" } % { token_type = :tGVAR };
 
-test = gvar | nth_ref | back_ref;
-
 var = (
     (ident_char - digit) ident_char*
   | ( digit | ^ident_char ) % {
@@ -381,35 +391,14 @@ operator_expr = (
 
 
 #
-# Main/Entry - Beginning Of Line -----------------------------------------------
-# Callable state (i.e., it must only be executed through a fcall)
+# Main/Entry - Beginning of File  ----------------------------------------------
 #
-BOL := |*
-  c_eof => EofBreak;
-  nl+; # no op
+action RetryBeg { fexec 0; fgoto EXPR_BEG; }
+action GotoBeg { fgoto EXPR_BEG; }
 
-  '=begin' ( ( space - nl ) ^nl* )? nl => {
-    #block_comment_start = @ts
-    fhold;
-    # BLOCK_COMMENT does fret. it must return to BOL.
-    fcall BLOCK_COMMENT;
-  };
+BOF := bol @err(RetryBeg) @GotoBeg;
 
-  '__END__' nl_eof => {
-    fexec pe;
-    @__end__seen = true;
-    # no fret or pop_fcall: it's EOF
-    fbreak;
-  };
-
-  any => {
-    fhold;
-    # Returns to caller (BOL ends at beginning of a line).
-    # \n sensitive states must take care of it,
-    # or they must setup the return state (fcall or push_fcall).
-    fret;
-  };
-*|;
+empty_lines = nl bol? (ws* nl bol?)*;
 
 
 #
@@ -441,20 +430,18 @@ include "string.rbrl";
 
 
 COMMON_EXPR := |*
-
-  c_eof => EofBreak;
+  c_eof;
 
   # ignore and continue parsing in corresponding expression state
   ws+ => { fret; };
 
   line_comment; # no op
 
-  nl (ws* nl)* => {
+  empty_lines => {
     @in_cmd = true
     gen_token(:kNL, token: "\n")
     pop_fcall
-    push_fcall EXPR_BEG
-    fnext BOL;
+    fnext EXPR_BEG;
     fbreak;
   };
 
@@ -467,85 +454,73 @@ COMMON_EXPR := |*
     | '>=' | '>'
     | '~'
 
-      # similar to operator_expr
-    | ( '**' | '*' | '+' | '-' | '&' %TokEnd [^.] ) % { token_type = OPERATORS }
     | '<<' | '>>' | '|' | '/' | '^' | '%'
-
-      # unique to COMMON_EXPR
     | '...' | '..' | ',' | '&&' | '||'
+
+    | ( '**' | '*' | '+' | '-' | '&' %TokEnd [^.] ) % { token_type = OPERATORS }
     | op_asgn % { token_type = OPERATORS }
+    | (
+          nl %TokStart ws* '.' %TokEnd [^.0-9]
+        | nl %TokStart ws* '&.'
+        | '.'
+        | '&.'
+        | '::' % { token_type = OPERATORS }
+      ) % { next_state = EXPR_DOT }
+
+    | ';' % { @in_cmd = true }
+
+    | ':' %TokEnd ( space | '#' )
+
+    | ':' % { token_type = :tSYMBEG; next_state = EXPR_FNAME }
+
+    | '->' % { next_state = EXPR_ENDFN }
+
+    | '(' % { token_type = OPERATORS }
+    | ')' % { next_state = EXPR_ENDFN }
+    | '[' % { token_type = OPERATORS }
+    | ']' % { next_state = EXPR_ENDARG }
+
+    | '}'
+
+    | '{' % {
+        if @lpar_beg > 0 && @lpar_beg == @paren_nest
+          @lpar_beg = 0
+          @paren_nest -= 1
+          token_type = :kLAMBEG
+        end
+      }
+
+    | any_var % { next_state = EXPR_END }
+
+    | '?' %TokEnd (
+
+        (alnum | '_') ident_char
+
+        # exclude '?\\\n': it resolves to '\n' as if '?\\n'
+      | space % {
+          i = " \n\f\r\t\v".index(current_token[-1])
+          c = 'snfrtv'[i]
+          warn "invalid character syntax; use ?\\#{c}"
+        }
+
+      | c_eof % { raise SyntaxError, "incomplete character syntax" }
+
+    )
+
   => Keyword;
 
   # ---
-
-  nl ws* '.' %TokEnd [^.0-9] % { next_state = EXPR_DOT } => Keyword;
-
-  nl ws* '&.' % { next_state = EXPR_DOT } => Keyword;
-
-  ( '.' | '&.' ) % { next_state = EXPR_DOT } => Keyword;
-
-  ';' % { @in_cmd = true } => Keyword;
-
-  '::' % { token_type = OPERATORS; next_state = EXPR_DOT } => Keyword;
-
-  ':' %TokEnd ( space | '#' ) => Keyword;
-
-  '->' % { next_state = EXPR_ENDFN } => Keyword;
-
-  '?' %TokEnd (
-
-      (alnum | '_') ident_char
-
-      # exclude '?\\\n': it resolves to '\n' as if '?\\n'
-    | space % {
-        i = " \n\f\r\t\v".index(current_token[-1])
-        c = 'snfrtv'[i]
-        warn "invalid character syntax; use ?\\#{c}"
-      }
-
-    | c_eof % { raise SyntaxError, "incomplete character syntax" }
-
-  ) => Keyword;
-
-  '(' % { token_type = OPERATORS } => Keyword;
-
-  ')' % { next_state = EXPR_ENDFN } => Keyword;
-
-  '[' % { token_type = OPERATORS } => Keyword;
-
-  ']' % { next_state = EXPR_ENDARG } => Keyword;
-
-  '{' % {
-    if @lpar_beg > 0 && @lpar_beg == @paren_nest
-      @lpar_beg = 0
-      @paren_nest -= 1
-      token_type = :kLAMBEG
-    end
-  } => Keyword;
-
-  '}' => Keyword;
-
-  [''""``] => StringStart;
-
-  '.' digit => { raise SyntaxError, 'no .<digit> floating literal anymore; put 0 before dot' };
-
-  ':' [''""] => StringStart;
-
-  ':' => {
-    gen_token(:tSYMBEG)
-    pop_fcall
-    fnext EXPR_FNAME;
-    fbreak;
-  };
-
-  number => Number;
-
-  any_var % { next_state = EXPR_END } => Keyword;
 
   '?' => {
     pop_fcall
     fgoto CHAR;
   };
+
+  [''""``] | ':' [''""] => StringStart;
+
+  number => Number;
+
+  '.' digit => { raise SyntaxError, 'no .<digit> floating literal anymore; put 0 before dot' };
 
   ^ident_char => { raise SyntaxError, "Invalid char `#{current_token}' in expression at #@ts"; };
 
@@ -553,24 +528,6 @@ COMMON_EXPR := |*
 
 *|;
 
-
-#
-# Block comments ---------------------------------------------------------------
-# =begin
-#  ...
-# =end
-#
-
-BLOCK_COMMENT := |*
-  c_eof => { raise SyntaxError, 'embedded document meets end of file' };
-
-  nl '=end' ( ws ^nl_eof* )? nl_eof => {
-    #gen_token(:tCOMMENT, current_token(ts: block_comment_start));
-    fret;
-  };
-
-  any; # append
-*|;
 
 # ##############################################################################
 
