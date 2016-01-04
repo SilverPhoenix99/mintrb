@@ -5,19 +5,19 @@ machine Lex;
 
 EXPR_MID := |*
 
+  e_beg_sign;
+
+  heredoc_ident => Heredoc;
+
+  '/' => StringStart;
+
+  percent_string => StringStart;
+
   '::' => Keyword;
 
   ( '**' | '*' ) %TokEnd [^=] => Keyword;
 
   '&' %TokEnd [^&.=] => Keyword;
-
-  heredoc_ident => Heredoc;
-
-  e_beg_sign;
-
-  '/' => StringStart;
-
-  percent_string => StringStart;
 
   '(' => Keyword;
 

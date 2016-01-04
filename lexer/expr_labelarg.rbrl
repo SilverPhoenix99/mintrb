@@ -15,12 +15,6 @@ EXPR_LABELARG := |*
     end
   };
 
-  '::' => Keyword;
-
-  ( '**' | '*' ) %TokEnd [^=] => Keyword;
-
-  '&' %TokEnd [^&.=] => Keyword;
-
   heredoc_ident => Heredoc;
 
   e_beg_sign;
@@ -28,6 +22,12 @@ EXPR_LABELARG := |*
   '/' => StringStart;
 
   percent_string => StringStart;
+
+  '::' => Keyword;
+
+  ( '**' | '*' ) %TokEnd [^=] => Keyword;
+
+  '&' %TokEnd [^&.=] => Keyword;
 
   # exclude '?\\\n': it resolves to '\n' as if '?\\n'
   '?' %TokEnd space => Keyword;

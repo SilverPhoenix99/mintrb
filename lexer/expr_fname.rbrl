@@ -7,10 +7,6 @@ EXPR_FNAME := |*
 
   empty_lines;
 
-  operator_expr => Keyword;
-
-  '`' % { next_state = EXPR_ENDFN } => Keyword;
-
   heredoc_ident => Heredoc;
 
   back_ref | nth_ref => {
@@ -19,9 +15,12 @@ EXPR_FNAME := |*
     fbreak;
   };
 
-  reserved => Keyword;
-
-  any_ident % { next_state = EXPR_ENDFN } => Keyword;
+  (
+      operator_expr
+    | '`' % { next_state = EXPR_ENDFN }
+    | reserved
+    | any_ident % { next_state = EXPR_ENDFN } 
+  ) => Keyword;
 
   any => { fhold; fcall COMMON_EXPR; };
 

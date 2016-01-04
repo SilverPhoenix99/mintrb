@@ -5,19 +5,19 @@ machine Lex;
 
 EXPR_CMDARG := |*
 
+  e_arg_sign;
+
+  ws+ '/' %TokEnd ^(space | '=') => StringStart;
+
+  ws+ percent_string - '%=' => StringStart;
+
+  ws+ heredoc_ident => Heredoc;
+
   ws+ '::' => Keyword;
 
   ws+ ( '**' | '*' ) %TokEnd ^(space | '=') => Keyword;
 
   ws+ '&' %TokEnd ^(space | [&.=]) => Keyword;
-
-  ws+ heredoc_ident => Heredoc;
-
-  e_arg_sign;
-
-  ws+ '/' %TokEnd ^(space | '=') => StringStart;
-
-  ws+ percent_string - (any* '=') => StringStart;
 
   # exclude '?\\\n': it resolves to '\n' as if '?\\n'
   '?' %TokEnd space => Keyword;

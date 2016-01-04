@@ -83,6 +83,8 @@ HEREDOC_DELIMITER := |*
 *|;
 
 HEREDOC_CONTENT := |*
+  # TODO: '\\\n' - counts as not being present, if id_delimiter != "'"
+
   c_eof => EofLiteralError;
 
   '\n' => { # don't jump yet
@@ -207,8 +209,9 @@ STRING_DELIMITER := |*
 
 WORD_CONTENT := |*
   # pass-through to take care of whitespace
+  # TODO: '\\\n' - counts as '\\n'
 
-  space+ => {
+  (space - nl)+ => {
     unless gen_string_content_token
       # ignore empty content
       current_literal.content_start = @te # cannot be before gen_string_content_token
@@ -254,7 +257,7 @@ STRING_CONTENT := |*
     end
   };
 
-  '\n' => {
+  '\n' => { # don't jump yet
     if @line_jump > 0
       # content in @te..@line_jump isn't included
       gen_string_content_token
