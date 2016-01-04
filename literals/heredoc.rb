@@ -4,13 +4,15 @@ module Mint
   class Heredoc
     include BaseLiteral
 
+    HEREDOC_IDENT = /^<<([-~]?)(["'`]?)(.+)(?:\2)$/
+
     attr_accessor :indent,
                   :line_indent,
                   :restore # only in heredoc (not inherited)
 
     alias_method :id, :delimiter
 
-    def initialize(indent_type, id_delimiter, id, restore)
+    def initialize(token, restore)
       # indent_type '' doesn't allow whitespace before delimiter,
       # i.e., the delimiter must be isolated in a line
 
@@ -21,7 +23,9 @@ module Mint
       #     heredoc_content.gsub(/^ {#{margin}}/, '')
       # it also allows whitespace before delimiter
 
-      @indent_type, @id_delimiter, @restore = indent_type, id_delimiter, restore
+      @indent_type, @id_delimiter, id = token.match(HEREDOC_IDENT).captures
+
+      @restore = restore
       @indent, @line_indent = -1, 0
       super(id)
     end

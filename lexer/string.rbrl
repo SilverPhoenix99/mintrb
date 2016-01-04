@@ -149,7 +149,7 @@ STRING_DELIMITER := |*
     is_labeled = current_literal.can_label? &&
       (
         fcalled_by?(EXPR_ARG, EXPR_CMDARG, EXPR_LABELARG) ||
-        ( (@cond & 1) == 0 && fcalled_by?(EXPR_BEG, EXPR_ENDFN) )
+        ( !cond? && fcalled_by?(EXPR_BEG, EXPR_ENDFN) )
       )
 
     tok = current_token(ote: -1)

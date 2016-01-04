@@ -24,8 +24,15 @@ module Mint
       @tab_width = 8
     end
 
-    attr_reader :filename
-    attr_reader :__end__seen
+    attr_reader :filename,
+                :__end__seen
+
+    attr_accessor :cond,
+                  :cmdarg,
+                  :in_cmd,
+                  :lpar_beg,
+                  :paren_nest,
+                  :in_kwarg
 
     def data
       @data.dup
@@ -54,6 +61,7 @@ module Mint
       @cond        = 0
       @cmdarg      = 0
       @lpar_beg    = 0
+      @in_kwarg    = false
 
       @lines       = @data.each_char
                          .each_with_index
@@ -87,13 +95,45 @@ module Mint
       @tokens.shift || [false, false]
     end
 
+    def push_cmdarg(val)
+      @cmdarg = (@cmdarg << 1) | (val ? 1 : 0)
+    end
+
+    def lexpop_cmdarg
+      @cmdarg = (@cmdarg >> 1) | (@cmdarg & 1)
+    end
+
+    def pop_cmdarg
+      @cmdarg >>= 1
+    end
+
+    def cmdarg?
+      (@cmdarg & 1) == 1
+    end
+
+    def push_cond(val)
+      @cond = (@cond << 1) | (val ? 1 : 0)
+    end
+
+    def lexpop_cond
+      @cond = (@cond >> 1) | (@cond & 1)
+    end
+
+    def pop_cond
+      @cond >>= 1
+    end
+
+    def cond?
+      (@cond & 1) == 1
+    end
+
     def state
       STATES[@cs]
     end
 
     def state=(state)
       raise NameError, "state #{state.inspect} not defined" unless STATES.has_value?(state)
-      @cs = const_get(state)
+      @cs = self.class.const_get(state)
     end
 
     class << self
@@ -149,27 +189,27 @@ module Mint
           if token[0] == '(' || token[0] == '['
             @paren_nest += 1
             unless @cs == OPERATOR_EXPR
-              @cond <<= 1   #@cond.push false
-              @cmdarg <<= 1 #@cmdarg.push false
+              push_cond false
+              push_cmdarg false
             end
 
           elsif token[0] == ')' || token[0] == ']'
             @paren_nest -= 1
-            lexpop :@cond
-            lexpop :@cmdarg
+            lexpop_cond
+            lexpop_cmdarg
 
           elsif token[0] == '{'
             @literals.last.brace_count += 1 unless @literals.empty?
-            @cond <<= 1   #@cond.push false
-            @cmdarg <<= 1 #@cmdarg.push false
+            push_cond false
+            push_cmdarg false
             if token_type == :kLAMBEG
               @lpar_beg = 0
               @paren_nest -= 1
             end
 
           elsif token[0] == '}'
-            lexpop :@cond
-            lexpop :@cmdarg
+            lexpop_cond
+            lexpop_cmdarg
             @cs = EXPR_ENDARG
             lit = @literals.last
             if lit
@@ -202,9 +242,9 @@ module Mint
             return [:kDO_LAMBDA, state]
           end
 
-          return [:kDO_COND,  state] if (@cond & 1) != 0
+          return [:kDO_COND,  state] if cond?
 
-          if ((@cmdarg & 1 != 0) && @cs != EXPR_ENDARG) || @cs == EXPR_BEG || @cs == EXPR_ENDARG
+          if (cmdarg? && @cs != EXPR_ENDARG) || @cs == EXPR_BEG || @cs == EXPR_ENDARG
             return [:kDO_BLOCK, state]
           end
 
@@ -219,8 +259,7 @@ module Mint
       end
 
       def gen_heredoc_token(ts = @ts)
-        indent, delimiter, id = current_token(ts: ts).match(HEREDOC_IDENT).captures
-        @literals << heredoc = Heredoc.new(indent, delimiter, id, @te)
+        @literals << heredoc = Heredoc.new(current_token(ts: ts), @te)
         gen_token(heredoc.type, token: heredoc.full_id, location: location(ts))
         heredoc
       end
@@ -288,22 +327,14 @@ module Mint
         @p = (@te = lte) - 1 if lte >= 0
         pop_fcall if fcalled_by?(COMMON_EXPR, reject: false) || @cs == COMMON_EXPR
         #fnext *next_state;
-        @cs = next_state
-        gen_token(token_type, token: token, ts: lts >= 0 ? lts : @ts)
+        current_state = @cs
+        token = gen_token(token_type, token: token, ts: lts >= 0 ? lts : @ts)
+        @cs = next_state if current_state == @cs
+        token
       end
 
-      def lexpop(var)
-        stack = instance_variable_get(var)
-        stack = (stack >> 1) && (stack & 1)
-        instance_variable_set(var, stack)
-      end
-
-      # This method should only be called at an `fexec'
       def next_bol!
-        if @line_jump > @p
-          p = @line_jump
-          return p
-        end
+        return @line_jump if @line_jump > @p
 
         p = @p
         loop do
@@ -331,8 +362,6 @@ module Mint
         @ts > 0 && @data[@ts - 1] =~ / \f\r\t\v/
       end
 
-    HEREDOC_IDENT = /^<<([-~]?)(["'`]?)(.+)(?:\2)$/
-
     OPERATORS = {
         '*'   => :kMUL,
         '**'  => :kPOW,
@@ -342,6 +371,7 @@ module Mint
         '::'  => :kCOLON2,
         '('   => :kLPAREN2,
         '['   => :kLBRACK2,
+        '{'   => :kLBRACE2
     }
 
     KEYWORDS = {
