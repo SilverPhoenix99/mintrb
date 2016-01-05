@@ -54,12 +54,16 @@ control_escape = control_prefix (
   | '\\' (ascii - [CMcux0-7])
 ) @lerr(InvalidControl);
 
+
+# ------------------------------------------------------------------------------
 #
-# Heredocs #####################################################################
+# Heredocs
 #
+
 # Heredoc existence condition:
 #     ( [EXPR_BEG, EXPR_FNAME, EXPR_LABELARG, EXPR_MID].include?(@cs) )
 #  || ( [EXPR_ARG, EXPR_CMDARG].include?(@cs) && ( @ts == 0 || @data[@ts - 1] =~ / \f\t\r\v/ ) )
+
 
 HEREDOC_DELIMITER := |*
   c_eof => EofLiteralError;
@@ -115,31 +119,29 @@ HEREDOC_CONTENT := |*
   };
 
   ' ' => {
-    if current_literal.dedents?
-      current_literal.tap do |lit|
-        lit.line_indent += 1 if lit.line_indent >= 0
-      end
+    if current_literal.dedents? && current_literal.line_indent >= 0
+      current_literal.line_indent += 1
     end
   };
 
   '\t' => {
-    if current_literal.dedents?
-      current_literal.tap do |lit|
-        if lit.line_indent >= 0
-          w = lit.line_indent / tab_width + 1
-          lit.line_indent = w * tab_width
-        end
-      end
+    if current_literal.dedents? && current_literal.line_indent >= 0
+      w = current_literal.line_indent / tab_width + 1
+      current_literal.line_indent = w * tab_width
     end
   };
 
   any => { current_literal.commit_indent };
+
 *|;
 
 
+# ------------------------------------------------------------------------------
 #
-# Strings ######################################################################
+# Strings
 #
+
+
 STRING_DELIMITER := |*
   c_eof => EofLiteralError;
 
@@ -231,6 +233,7 @@ WORD_CONTENT := |*
     fhold;
     fgoto STRING_CONTENT;
   };
+
 *|;
 
 
@@ -269,6 +272,7 @@ STRING_CONTENT := |*
   };
 
   any => { fgoto STRING_DELIMITER; };
+
 *|;
 
 
@@ -294,9 +298,11 @@ REGEXP_END := |*
 *|;
 
 
+# ------------------------------------------------------------------------------
 #
-# Single characters (e.g.: ?a) #################################################
+# Single characters (e.g.: ?a)
 #
+
 
 CHAR := |*
   c_eof => { raise SyntaxError, 'incomplete character syntax' };
@@ -312,6 +318,7 @@ CHAR := |*
     fnext EXPR_END;
     fbreak;
   };
+
 *|;
 
 }%%
