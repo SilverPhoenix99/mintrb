@@ -92,10 +92,15 @@ module Mint
       @p > @data.length
     end
 
+    def location(pos = @ts)
+      line = @lines.bsearch { |l| l.first > pos }
+      [line.last, pos - @lines[line.last - 1].first + 1]
+    end
+
     def next_token
       return [false, false] if eof?
       advance if @tokens.empty?
-      raise IndexError, 'Stack is full' if @top > 5
+      raise IndexError, 'Stack is full' if @top > 10
       @tokens.shift || [false, false]
     end
 
@@ -149,13 +154,6 @@ module Mint
       @tab_width || self.class.tab_width
     end
     attr_writer :tab_width
-
-    protected
-
-      def location(pos = @ts)
-        line = @lines.bsearch { |l| l.first > pos }
-        [line.last, pos - @lines[line.last - 1].first + 1]
-      end
 
     private
 
@@ -379,6 +377,60 @@ module Mint
     }
 
     KEYWORDS = {
+      '!'   => :kNOTOP,
+      '!='  => :kNEQ,
+      '!@'  => :kNOTOP,
+      '!~'  => :kNMATCH,
+      '&'   => :kAMPER,
+      '&&'  => :kANDOP,
+      '&.'  => :kANDDOT,
+      '('   => :kLPAREN,
+      ')'   => :kRPAREN,
+      '*'   => :kSTAR,
+      '**'  => :kDSTAR,
+      '+'   => :kUPLUS,
+      '+@'  => :kUPLUS,
+      ','   => :kCOMMA,
+      '-'   => :kUMINUS,
+      '->'  => :kLAMBDA,
+      '-@'  => :kUMINUS,
+      '.'   => :kDOT,
+      '..'  => :kDOT2,
+      '...' => :kDOT3,
+      '/'   => :kDIV,
+      ':'   => :kCOLON,
+      '::'  => :kCOLON3,
+      ';'   => :kSEMICOLON,
+      '<'   => :kLESS,
+      '<<'  => :kLSHIFT,
+      '<='  => :kLEQ,
+      '<=>' => :kCMP,
+      '='   => :kASSIGN,
+      '=='  => :kEQ,
+      '===' => :kEQQ,
+      '=>'  => :kASSOC,
+      '=~'  => :kMATCH,
+      '>'   => :kGREATER,
+      '>='  => :kGEQ,
+      '>>'  => :kRSHIFT,
+      '?'   => :kQMARK,
+      '['   => :kLBRACK,
+      '[]'  => :kAREF,
+      '[]=' => :kASET,
+      ']'   => :kRBRACK,
+      '^'   => :kXOR,
+      '`'   => :kBACKTICK,
+      '{'   => :kLBRACE,
+      '|'   => :kPIPE,
+      '||'  => :kOROP,
+      '}'   => :kRBRACE,
+      '~'   => :kNEG,
+      '~@'  => :kNEG,
+      '%'   => :kPERCENT,
+      '\\'  => :kBACKSLASH,
+    }
+
+    RESERVED = {
       'alias'        => [:kALIAS,        EXPR_FNAME],
       'and'          => [:kAND,          EXPR_BEG],
       'BEGIN'        => [:kAPP_BEGIN,    EXPR_END],
@@ -420,57 +472,6 @@ module Mint
       '__ENCODING__' => [:k__ENCODING__, EXPR_END],
       '__FILE__'     => [:k__FILE__,     EXPR_END],
       '__LINE__'     => [:k__LINE__,     EXPR_END],
-      '!'            => :kNOTOP,
-      '!='           => :kNEQ,
-      '!@'           => :kNOTOP,
-      '!~'           => :kNMATCH,
-      '&'            => :kAMPER,
-      '&&'           => :kANDOP,
-      '&.'           => :kANDDOT,
-      '('            => :kLPAREN,
-      ')'            => :kRPAREN,
-      '*'            => :kSTAR,
-      '**'           => :kDSTAR,
-      '+'            => :kUPLUS,
-      '+@'           => :kUPLUS,
-      ','            => :kCOMMA,
-      '-'            => :kUMINUS,
-      '->'           => :kLAMBDA,
-      '-@'           => :kUMINUS,
-      '.'            => :kDOT,
-      '..'           => :kDOT2,
-      '...'          => :kDOT3,
-      '/'            => :kDIV,
-      ':'            => :kCOLON,
-      '::'           => :kCOLON3,
-      ';'            => :kSEMICOLON,
-      '<'            => :kLESS,
-      '<<'           => :kLSHIFT,
-      '<='           => :kLEQ,
-      '<=>'          => :kCMP,
-      '='            => :kASSIGN,
-      '=='           => :kEQ,
-      '==='          => :kEQQ,
-      '=>'           => :kASSOC,
-      '=~'           => :kMATCH,
-      '>'            => :kGREATER,
-      '>='           => :kGEQ,
-      '>>'           => :kRSHIFT,
-      '?'            => :kQMARK,
-      '['            => :kLBRACK,
-      '[]'           => :kAREF,
-      '[]='          => :kASET,
-      ']'            => :kRBRACK,
-      '^'            => :kXOR,
-      '`'            => :kBACKTICK,
-      '{'            => :kLBRACE,
-      '|'            => :kPIPE,
-      '||'           => :kOROP,
-      '}'            => :kRBRACE,
-      '~'            => :kNEG,
-      '~@'           => :kNEG,
-      '%'            => :kPERCENT,
-      '\\'           => :kBACKSLASH,
     }
   end
 end
