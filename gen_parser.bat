@@ -1,9 +1,13 @@
 @echo off
 
-set MINT_GEN_DIR=%~dp0
+set MINT_DIR=%~dp0
+set MINT_GEN_DIR=%MINT_DIR%gen\
 
-racc -o "%MINT_GEN_DIR%gen\parser.rb" "%MINT_GEN_DIR%parser.y"
+if not exist "%MINT_GEN_DIR%" mkdir "%MINT_GEN_DIR%"
+
+racc -o "%MINT_GEN_DIR%parser.rb" "%MINT_DIR%parser.y"
 
 echo %errorlevel%
 
+set MINT_DIR=
 set MINT_GEN_DIR=
