@@ -190,7 +190,7 @@ module Mint
         if token.length == 1
           if token[0] == '(' || token[0] == '['
             @paren_nest += 1
-            unless @cs == OPERATOR_EXPR
+            unless @cs == EXPR_FNAME || @cs == EXPR_DOT
               push_cond false
               push_cmdarg false
             end
