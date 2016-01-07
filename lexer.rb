@@ -266,6 +266,22 @@ module Mint
         heredoc
       end
 
+      def gen_literal_token(ts = @ts)
+        token = current_token(ts: ts)
+
+        can_label = token =~ /^["']$/ &&
+            (
+            (!@in_cmd && (@cs == EXPR_BEG || @cs == EXPR_ENDFN || fcalled_by?(EXPR_BEG, EXPR_ENDFN))) ||
+                @cs == EXPR_ARG ||
+                @cs == EXPR_CMDARG ||
+                @cs == EXPR_LABELARG ||
+                fcalled_by?(EXPR_ARG, EXPR_CMDARG, EXPR_LABELARG)
+            )
+
+        @literals << lit = Literal.new(token, @te, can_label)
+        gen_token(lit.type, token: token, location: location(ts))
+      end
+
       def gen_interpolation_tokens(type)
         lit = @literals.last
         lit.commit_indent
@@ -275,31 +291,6 @@ module Mint
         gen_token(:tSTRING_DVAR, token: '#', location: location(@ts))
         gen_token(type, token: tok, location: location(@ts + 1))
         lit.content_start = @te
-      end
-
-      def gen_literal_token(ts = @ts)
-        token = current_token(ts: ts)
-
-        can_label = token =~ /^["']$/ &&
-          (
-            (!@in_cmd && (@cs == EXPR_BEG || @cs == EXPR_ENDFN || fcalled_by?(EXPR_BEG, EXPR_ENDFN))) ||
-            @cs == EXPR_ARG ||
-            @cs == EXPR_CMDARG ||
-            @cs == EXPR_LABELARG ||
-            fcalled_by?(EXPR_ARG, EXPR_CMDARG, EXPR_LABELARG)
-          )
-
-        @literals << lit = Literal.new(token, @te, can_label)
-        gen_token(lit.type, token: token, location: location(ts))
-      end
-
-      def gen_number_token(num_type, num_base, num_flags, ts: @ts)
-        num_type = case num_flags.last
-          when :rational  then :tRATIONAL
-          when :imaginary then :tIMAGINARY
-          else num_type
-        end
-        gen_token(num_type, ts: ts, num_base: num_base)
       end
 
       def gen_string_content_token(ote = @ts - @te)
@@ -324,6 +315,15 @@ module Mint
         end
       end
 
+      def gen_number_token(num_type, num_base, num_flags, ts: @ts)
+        num_type = case num_flags.last
+          when :rational  then :tRATIONAL
+          when :imaginary then :tIMAGINARY
+          else num_type
+        end
+        gen_token(num_type, ts: ts, num_base: num_base)
+      end
+
       def keyword_token(token_type, lts, lte, next_state, token: nil)
         #fexec @te = lte;
         @p = (@te = lte) - 1 if lte >= 0
@@ -337,13 +337,8 @@ module Mint
 
       def next_bol!
         return @line_jump if @line_jump > @p
-
-        p = @p
-        loop do
-          c = @data[p]
-          break p+1 if !c || c == NL
-          p += 1
-        end
+        (@p...data.length).each { |p| return p+1 if @data[p] == NL }
+        data.length + 1
       end
 
       def peek(n = 0)
@@ -358,10 +353,6 @@ module Mint
 
       def pop_fcall
         @top -= 1
-      end
-
-      def space_seen?
-        @ts > 0 && @data[@ts - 1] =~ / \f\r\t\v/
       end
 
     OPERATORS = {
