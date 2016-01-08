@@ -261,8 +261,8 @@ module Mint
       end
 
       def gen_heredoc_token(ts = @ts)
-        @literals << heredoc = Heredoc.new(current_token(ts: ts), @te)
-        gen_token(heredoc.type, token: heredoc.full_id, location: location(ts))
+        @literals << heredoc = Heredoc.new(tok = current_token(ts: ts), @te)
+        gen_token(heredoc.type, token: tok, location: location(ts))
         heredoc
       end
 

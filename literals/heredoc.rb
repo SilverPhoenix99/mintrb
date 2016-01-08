@@ -10,8 +10,6 @@ module Mint
                   :line_indent,
                   :restore # only in heredoc (not inherited)
 
-    alias_method :id, :delimiter
-
     def initialize(token, restore)
       # indent_type '' doesn't allow whitespace before delimiter,
       # i.e., the delimiter must be isolated in a line
@@ -41,17 +39,12 @@ module Mint
     end
 
     def delimiter?(delimiter)
-      @regexp ||= (@indent_type == '') ? /#@delimiter$/ : /[\t\v\f\r ]*#@delimiter$/
-
-      (delimiter =~ @regexp) == 0
+      @regexp ||= (@indent_type == '') ? /^#@delimiter$/ : /^[\t\v\f\r ]*#@delimiter$/
+      delimiter =~ @regexp
     end
 
     def end_delimiter
       @delimiter
-    end
-
-    def full_id
-      "<<#{@indent_type}#{@id_delimiter}#{@delimiter}#{@id_delimiter}"
     end
 
     def interpolates?
