@@ -573,7 +573,7 @@ primary :
   | kYIELD kLPAREN2 call_args rparen { result = val[0], val[2] }
   | kYIELD kLPAREN2 rparen           { result = val[0], [] }
   | kYIELD
-  | kDEFINED opt_nl kLPAREN2 { @in_defined = true } expr rparen { result = val[0], val[4] }
+  | kDEFINED opt_nl kLPAREN2 { @in_defined = true } expr { @in_defined = false } rparen { result = val[0], val[4] }
   | kNOT kLPAREN2 expr rparen { result = val[0], val[2] }
   | kNOT kLPAREN2 rparen      { result = val[0], [] }
   | fcall brace_block
@@ -844,7 +844,7 @@ do_block :
 block_call :
     command do_block
     {
-      #if (nd_type($1) == NODE_YIELD) {
+      #if (nd_type($1) == NODE_YIELD)
       #    compile_error(PARSER_ARG "block given to yield");
       #block_dup_check($1->nd_args, $2);
 
@@ -1162,7 +1162,6 @@ f_norm_arg :
       formal_argument("f_norm_arg > tIDENTIFIER", val);
       #formal_argument(get_id($1));
     }
-  ;
 
 f_arg_asgn :
     f_norm_arg
