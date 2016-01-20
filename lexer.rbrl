@@ -1087,6 +1087,7 @@ WORD_CONTENT := |*
     if current_literal.delimiter?('\n') && @line_jump > @p
       fexec @line_jump;
     end
+    fnext EXPR_END;
     fbreak;
   };
 
