@@ -66,7 +66,7 @@ action StringStart {
   end
   gen_literal_token(lts >= 0 ? lts : @ts)
   push_fcall unless @cs == COMMON_EXPR # this is so that strings can identify who called them if needed
-  fnext STRING_DELIMITER;
+  fnext *@literals.last.state;
   fbreak;
 }
 
@@ -326,7 +326,7 @@ var = (
     }
 
   | ( c_eof | space ) % {
-      tok = current_token(ote: -1)
+      tok = current_token(te: @te - 1)
       type_str = token_type == :tIVAR ? 'n instance' : ' class'
       raise SyntaxError, "`#{tok}' without identifiers is not allowed as a#{type_str} variable name"
     }
@@ -690,7 +690,7 @@ EXPR_FNAME := |*
       operator_expr
     | '`' % { next_state = EXPR_ENDFN }
     | reserved
-    | any_ident % { next_state = EXPR_ENDFN } 
+    | any_ident % { next_state = EXPR_ENDFN }
   ) => Keyword;
 
   any => { fhold; fcall COMMON_EXPR; };
@@ -846,7 +846,7 @@ COMMON_EXPR := |*
 
         # exclude '?\\\n': it resolves to '\n' as if '?\\n'
       | space % {
-          i = " \n\f\r\t\v".index(current_token(ots: 1, ote: 1)[0])
+          i = " \n\f\r\t\v".index(current_token(ts: @ts + 1, te: @te + 1)[0])
           c = 'snfrtv'[i]
           warn "invalid character syntax; use ?\\#{c}"
         }
@@ -968,7 +968,7 @@ HEREDOC_CONTENT := |*
 
     if @line_jump > @p
       # content in @te..@line_jump isn't included
-      gen_string_content_token(0)
+      gen_string_content_token(@te)
       current_literal.content_start = @line_jump
       fexec @line_jump;
     end
@@ -1013,146 +1013,160 @@ HEREDOC_CONTENT := |*
 # Strings
 #
 
-STRING_DELIMITER := |*
+# ^D (0x4) isn't used by the lexer.
+# The real string delimiter is replaced by ^D to generalize STRING_CONTENT.
+string_delimiter = 0x4;
+
+action StringNl {
+  if @line_jump > 0
+    # content in te...line_jump isn't included
+    lte = current_literal.state == :WORD_CONTENT && peek(@ts) == '\\'.ord ? -1 : 0
+    gen_string_content_token
+    current_literal.content_start = @line_jump
+    fexec @line_jump;
+    fbreak;
+  end
+}
+
+action StringDBeg {
+  if current_literal.interpolates?
+    gen_string_content_token
+    gen_token(:tSTRING_DBEG)
+    pop_fcall
+    fnext EXPR_BEG;
+    fbreak;
+  end
+}
+
+action StringDVar {
+  if gen_interpolation_tokens(token_type)
+    fbreak;
+  end
+}
+
+action StringDelimiter {
+  gen_string_content_token
+  if current_literal.regexp?
+    regexp_delim   = @ts
+    regexp_options = []
+    fgoto REGEXP_END;
+  end
+  gen_string_end_token
+  pop_fcall
+  fnext EXPR_END;
+  fbreak;
+}
+
+STRING_CONTENT := |*
   c_eof => EofLiteralError;
+  string_delimiter => StringDelimiter;
 
-  alnum;
+  char_escape - '\\\n';
+  octal_escape;
+  hex_escape;
+  multi_unicode_escape;
+  control_escape;
 
-  ^alnum ':' [^:] => {
-    fexec @te -= 1; # hold the last char [^:]
+  '\\'? '\n'  => StringNl;
+  '#{'        => StringDBeg;
+  '#' any_var => StringDVar;
 
-    is_labeled = current_literal.can_label? &&
-      (
-        fcalled_by?(EXPR_ARG, EXPR_CMDARG, EXPR_LABELARG) ||
-        ( !cond? && fcalled_by?(EXPR_BEG, EXPR_ENDFN) )
-      )
-
-    tok = current_token(ote: -1)
-
-    unless is_labeled
-      fexec @te -= 1; # hold the last char ':'
-    end
-
-    unless current_literal.delimiter?(tok)
-      # not the delimiter
-      fexec @ts;
-      fgoto *(current_literal.words? ? WORD_CONTENT : STRING_CONTENT);
-    end
-
-    # found delimiter => end string
-
-    pop_fcall
-    gen_string_content_token
-
-    #regexp_delim, regex_options = nil
-    if current_literal.regexp?
-      regexp_delim, regex_options = @ts, []
-      fgoto REGEXP_END;
-    end
-
-    gen_string_end_token
-    fnext *(is_labeled ? EXPR_BEG : EXPR_END);
-    fbreak;
-  };
-
-  ^alnum => {
-    unless current_literal.delimiter?(current_token)
-      fhold;
-      fgoto *(current_literal.words? ? WORD_CONTENT : STRING_CONTENT);
-    end
-
-    # found delimiter => end string
-
-    pop_fcall
-    gen_string_content_token
-
-    #regexp_delim, regex_options = nil
-    if current_literal.regexp?
-      regexp_delim, regex_options = @ts, []
-      fgoto REGEXP_END;
-    end
-
-    gen_string_end_token
-    fnext EXPR_END;
-    fbreak;
-  };
-
+  ^([\\\n] | c_eof | string_delimiter);
 *|;
 
 
 WORD_CONTENT := |*
-  # pass-through to take care of whitespace
-  # TODO: '\\\n' - counts as '\\n'
+  c_eof => EofLiteralError;
 
-  (space - nl)+ => {
-    unless gen_string_content_token
-      # ignore empty content
-      current_literal.content_start = @te # cannot be before gen_string_content_token
-      fgoto STRING_DELIMITER;
+  string_delimiter => {
+    if current_literal.was_content?
+      gen_string_content_token
+      gen_token(:tSPACE, token: '')
     end
-
-    current_literal.content_start = @te
-    gen_token(:tSPACE)
-    fnext STRING_DELIMITER;
+    gen_string_end_token
+    if current_literal.delimiter?('\n') && @line_jump > @p
+      fexec @line_jump;
+    end
     fbreak;
   };
 
-  #TODO: embedded heredocs
-  #'\n' => {};
-
-  any => {
-    fhold;
-    fgoto STRING_CONTENT;
-  };
-
-*|;
-
-
-STRING_CONTENT := |*
-  c_eof => EofLiteralError;
-
-  octal_escape;
-  hex_escape;
-  char_escape;
-  multi_unicode_escape;
-  control_escape;
-
-  '#' any_var => {
-    gen_interpolation_tokens(token_type);
-    fgoto STRING_DELIMITER;
-  };
-
-  '#{' => {
-    if current_literal.interpolates?
-      gen_string_content_token
-      gen_token(:tSTRING_DBEG)
-      fnext EXPR_BEG;
+  '\\\n' => {
+    current_literal.was_content = true
+    if @line_jump > @p
+      gen_string_content_token(@te)
+      fexec @line_jump;
+      current_literal.content_start = @line_jump
       fbreak;
     end
   };
 
-  '\n' => { # don't jump yet
-    if @line_jump > 0
-      # content in @te..@line_jump isn't included
-      gen_string_content_token
-      current_literal.content_start = @line_jump
+  '\\' string_delimiter => {
+    current_literal.was_content = true
+    if current_literal.delimiter?('\n') && @line_jump > @p
+      gen_string_content_token(@te)
       fexec @line_jump;
+      current_literal.content_start = @line_jump
+      fbreak;
     end
-
-    fgoto STRING_DELIMITER;
   };
 
-  any => { fgoto STRING_DELIMITER; };
+  '#{' % { current_literal.was_content = true } => StringDBeg;
+
+  '#' any_var => {
+    gen_interpolation_tokens(token_type)
+    current_literal.was_content = true
+    if current_literal.interpolates?
+      fbreak;
+    end
+  };
+
+  (char_escape - '\\\n' - '\\' string_delimiter) => { current_literal.was_content = true };
+  octal_escape                                   => { current_literal.was_content = true };
+  hex_escape                                     => { current_literal.was_content = true };
+  multi_unicode_escape                           => { current_literal.was_content = true };
+  control_escape                                 => { current_literal.was_content = true };
+  ^('\\' | c_eof | string_delimiter | space)     => { current_literal.was_content = true };
+
+  (
+      space
+    | '\n' @ {
+        if @line_jump > @p
+          was_content = current_literal.was_content?
+          if was_content
+            gen_string_content_token
+            gen_token(:tSPACE, te: @p + 1)
+          end
+          current_literal.was_content = false
+          current_literal.content_start = @line_jump
+          fexec @line_jump;
+          if was_content
+            fbreak;
+          end
+        end
+      }
+  )+ => {
+    was_content = current_literal.was_content?
+    if was_content
+      gen_string_content_token
+      gen_token(:tSPACE)
+    end
+    current_literal.was_content = false
+    current_literal.content_start = @te
+    if was_content
+      fbreak;
+    end
+  };
 
 *|;
 
 
 REGEXP_END := |*
-
-  'm' => { regex_options << :multi_line };
-  'i' => { regex_options << :ignore_case };
-  'x' => { regex_options << :extend };
-  'o' => { regex_options << :once };
+  (
+      'm' @ { regexp_options << :multi_line }
+    | 'i' @ { regexp_options << :ignore_case }
+    | 'x' @ { regexp_options << :extend }
+    | 'o' @ { regexp_options << :once }
+  )+;
 
   ( alpha - [mixo] )+ => {
     tok = current_token
@@ -1161,11 +1175,10 @@ REGEXP_END := |*
 
   ^alpha => {
     fexec @te -= 1;
-    gen_token(:tREGEXP_END, ts: regexp_delim, options: regex_options.uniq.sort);
+    gen_token(:tREGEXP_END, ts: regexp_delim, options: regexp_options.uniq.sort);
     fnext EXPR_END;
     fbreak;
   };
-
 *|;
 
 
@@ -1177,10 +1190,10 @@ REGEXP_END := |*
 CHAR := |*
   c_eof => { raise SyntaxError, 'incomplete character syntax' };
 
-    unicode_escape
+    char_escape
+  | unicode_escape
   | octal_escape
   | hex_escape
-  | char_escape
   | control_escape
   | ^c_eof
   => {

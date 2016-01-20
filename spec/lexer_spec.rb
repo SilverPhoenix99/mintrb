@@ -310,6 +310,7 @@ RSpec.describe Mint::Lexer do
           [:tSTRING_CONTENT, ['a',   1, 4]],
           [:tSPACE,          [' ',   1, 5]],
           [:tSTRING_CONTENT, ['b',   1, 6]],
+          [:tSPACE,          ['',    1, 7]],
           [:tSTRING_END,     ['}',   1, 7]],
           [false, false]
       ]
@@ -348,6 +349,19 @@ RSpec.describe Mint::Lexer do
       subject.to_a.should == [
           [:tQWORDS_BEG, ['%w{', 1, 1]],
           [:tSTRING_END, ['}',   2, 1]],
+          [false, false]
+      ]
+    end
+
+    it 'words with trailing space' do
+      subject.data = %|%W{a\n  b  }|
+      subject.to_a.should == [
+          [:tWORDS_BEG,      ['%W{',  1, 1]],
+          [:tSTRING_CONTENT, ['a',    1, 4]],
+          [:tSPACE,          ["\n  ", 1, 5]],
+          [:tSTRING_CONTENT, ['b',    2, 3]],
+          [:tSPACE,          ["  ",   2, 4]],
+          [:tSTRING_END,     ["}",    2, 6]],
           [false, false]
       ]
     end

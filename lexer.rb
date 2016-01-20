@@ -157,8 +157,8 @@ module Mint
 
     private
 
-      def current_token(ts: @ts, te: @te, ots: 0, ote: 0)
-        @data[(ts + ots)...(te + ote)]
+      def current_token(ts: @ts, te: @te)
+        @data[ts...te]
       end
 
       def fcalled_by?(*states, offset: 0, reject: true)
@@ -174,8 +174,8 @@ module Mint
         states.include?(c)
       end
 
-      def gen_token(token_type, token: nil, location: nil, ts: @ts, te: @te, ots: 0, ote: 0, **options)
-        token    ||= current_token(ts: ts, te: te, ots: ots, ote: ote)
+      def gen_token(token_type, token: nil, location: nil, ts: @ts, te: @te, **options)
+        token    ||= current_token(ts: ts, te: te)
         location ||= location(ts)
 
         if token_type == OPERATORS && token[-1] == '='
@@ -217,7 +217,7 @@ module Mint
             if lit
               if lit.brace_count == 0
                 token_type = :tSTRING_DEND
-                lit.content_start = @te
+                lit.content_start = te
                 @cs = lit.state
               else
                 lit.brace_count -= 1
@@ -286,25 +286,27 @@ module Mint
         lit = @literals.last
         lit.commit_indent
         return unless lit.interpolates?
-        tok = current_token(ots: 1)
-        gen_string_content_token(- tok.length - 1)
+        tok = current_token(ts: @ts + 1)
+        if !lit.words? || lit.was_content?
+          gen_string_content_token(@te - tok.length - 1)
+        end
+        lit.was_content = true
         gen_token(:tSTRING_DVAR, token: '#', location: location(@ts))
         gen_token(type, token: tok, location: location(@ts + 1))
         lit.content_start = @te
       end
 
-      def gen_string_content_token(ote = @ts - @te)
+      def gen_string_content_token(te = @ts)
         lit = @literals.last
-        tok = current_token(ts: lit.content_start, ote: ote)
-        return false if tok.length == 0
-        gen_token(:tSTRING_CONTENT, token: tok, location: location(lit.content_start))
-        true
+        tok = current_token(ts: lit.content_start, te: te)
+        return if tok.length == 0
+        gen_token(:tSTRING_CONTENT, token: tok, ts: lit.content_start)
       end
 
       def gen_string_end_token
         lit = @literals.pop
         tok = current_token
-        if lit.delimiter == '/'
+        if lit.regexp?
           gen_token(:tREGEXP_END, token: tok)
         elsif tok[-1] == ':'
           gen_token(:tLABEL_END, token: tok)
@@ -343,6 +345,7 @@ module Mint
 
       def peek(n = 0)
         c = @data[@p + n]
+        return 0x4 if (self.state == :STRING_CONTENT || self.state == :WORD_CONTENT) && @literals.last.delimiter?(c)
         (c && c.ord) || 0
       end
 

@@ -17,6 +17,9 @@ module Mint
         # variables for keyword_token()
         token_type, lts, lte, next_state = KEYWORDS, -1, -1, EXPR_BEG
 
+        # variables for REGEXP_END
+        regexp_delim, regexp_options = nil
+
         %%{ write exec; }%%
 
         nil

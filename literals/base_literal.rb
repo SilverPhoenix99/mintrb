@@ -6,6 +6,8 @@ module Mint
     attr_accessor :brace_count,
                   :content_start
 
+    attr_writer :was_content
+
     def initialize(delimiter)
       @delimiter = delimiter
       @brace_count = 0
@@ -25,6 +27,7 @@ module Mint
     def state;                raise 'Not Implemented' end
     def type;                 raise 'Not Implemented' end
     def unterminated_message; raise 'Not Implemented' end
+    def was_content?;         @was_content            end
     def words?;               false                   end
   end
 end

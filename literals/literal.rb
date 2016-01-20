@@ -29,7 +29,7 @@ module Mint
     end
 
     def state
-      Lexer::STRING_DELIMITER
+      words? ? Lexer::WORD_CONTENT : Lexer::STRING_CONTENT
     end
 
     def type
